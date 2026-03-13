@@ -1,0 +1,26 @@
+# Copy to terraform.tfvars and fill in your values.
+
+aws_region   = "us-east-1"
+project_name = "health-aggregator"
+environment  = "prod"
+
+# ── VPC (required) ────────────────────────────────────────────────────────────
+vpc_id                  = "vpc-0abc123def456789a"
+private_subnet_ids      = ["subnet-0aaa111", "subnet-0bbb222"]
+private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
+private_route_table_ids = ["rtb-0abc123", "rtb-0def456"]
+
+# ── Cross-org IAM ─────────────────────────────────────────────────────────────
+# Name of the role to assume in each org's delegated admin account.
+# Create this role in every org's delegated admin account before deploying.
+cross_org_role_name = "HealthAggregatorReadRole"
+
+# ── Alerting ──────────────────────────────────────────────────────────────────
+alarm_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-aggregator-alerts"
+
+# ── Tuning (optional — defaults are fine for most deployments) ────────────────
+# collection_window_days  = 7
+# collection_schedule     = "rate(15 minutes)"
+# max_concurrent_orgs     = 5
+# account_cache_ttl_hours = 24
+# log_retention_days      = 90

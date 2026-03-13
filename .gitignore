@@ -1,0 +1,24 @@
+# Build artifacts
+.build/
+
+# Python deps installed into Lambda dirs by deploy.sh
+lambda/collector/*.dist-info/
+lambda/collector/*.egg-info/
+lambda/api/*.dist-info/
+lambda/api/*.egg-info/
+# (keep source .py files, exclude installed wheels)
+lambda/**/*.so
+lambda/**/__pycache__/
+lambda/**/*.pyc
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+*.tfplan
+*.tfstate
+*.tfstate.backup
+
+# Local env
+.env
+*.env.local
