@@ -1,0 +1,27 @@
+output "consumer_api_url" {
+  description = "Base URL of the consumer-facing REST API."
+  value       = "https://${aws_api_gateway_rest_api.consumer.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.consumer.stage_name}/v1"
+}
+
+output "health_proxy_api_url" {
+  description = "Internal Health Proxy API GW URL (VPC-only, used by Lambda env var)."
+  value       = "https://${aws_api_gateway_rest_api.health_proxy.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.health_proxy.stage_name}"
+  sensitive   = false
+}
+
+output "events_table_name" {
+  value = aws_dynamodb_table.events.name
+}
+
+output "collector_function_name" {
+  value = aws_lambda_function.collector.function_name
+}
+
+output "execute_api_vpce_id" {
+  description = "VPC endpoint ID for execute-api — required by the Health Proxy private API resource policy."
+  value       = aws_vpc_endpoint.execute_api.id
+}
+
+output "kms_key_arn" {
+  value = aws_kms_key.main.arn
+}
