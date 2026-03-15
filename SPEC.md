@@ -67,7 +67,7 @@ Aggregate AWS Health events across **multiple AWS Organizations** using delegate
 ## §2 Goals and Non-Goals
 
 **Goals:**
-- Collect `issue` + `investigation` events from N configured orgs every 15 minutes.
+- Collect `issue` + `investigation` events from N configured orgs every 5 minutes.
 - 7-day sliding window; DynamoDB TTL handles expiry automatically.
 - Filter by org, service, region, status, environment (production / non-production).
 - Enrich events with account metadata (name, BU, env) from AWS Organizations.
@@ -236,7 +236,7 @@ Passthrough preserves `nextToken` in responses for Lambda's pagination loop.
 
 **File:** `lambda/collector/handler.py`
 
-**Trigger:** EventBridge scheduled rule — `rate(15 minutes)`
+**Trigger:** EventBridge scheduled rule — `rate(5 minutes)`
 
 **Runtime:** Python 3.12, 512 MB, 300s timeout
 
@@ -256,7 +256,7 @@ Passthrough preserves `nextToken` in responses for Lambda's pagination loop.
 | `ACCOUNT_CACHE_TTL_HOURS` | `24` | Account metadata cache TTL |
 | `HEALTH_ALERT_SNS_TOPIC_ARN` | `""` | SNS topic for health event alerts |
 | `ALERTS_ENABLED` | `"true"` | Set `"false"` to disable alerting |
-| `DIGEST_WINDOW_MINUTES` | `"30"` | Minutes to accumulate before sending first incident digest |
+| `DIGEST_WINDOW_MINUTES` | `"15"` | Minutes to accumulate before sending first incident digest |
 | `CORRELATION_WINDOW_MINUTES` | `"60"` | Minutes window for grouping same-service events into one incident |
 | `LOG_LEVEL` | `"INFO"` | |
 
@@ -805,7 +805,7 @@ Three Lambda functions + log groups + consumer API GW:
 Consumer API GW: REGIONAL REST API, `{proxy+}` resource, AWS_IAM auth, AWS_PROXY integration to api Lambda. Stage with X-Ray, access logs (JSON format including `requestId`, `ip`, `httpMethod`, `resourcePath`, `status`, `responseLength`, `integrationLatency`).
 
 ### File: `terraform/eventbridge.tf`
-- Collector: `rate(15 minutes)` (configurable via `collection_schedule`)
+- Collector: `rate(5 minutes)` (configurable via `collection_schedule`)
 - Exporter: `rate(1 day)` (configurable via `excel_export_schedule`; conditional on `excel_export_enabled`)
 
 ### File: `terraform/iam.tf`
@@ -920,13 +920,13 @@ All variables defined in `terraform/variables.tf`. Example values in `terraform/
 | `project_name` | `health-aggregator` | Resource name prefix |
 | `environment` | `prod` | Stage name |
 | `collection_window_days` | `7` | Sliding window (days) |
-| `collection_schedule` | `rate(15 minutes)` | EventBridge schedule |
+| `collection_schedule` | `rate(5 minutes)` | EventBridge schedule |
 | `max_concurrent_orgs` | `5` | ThreadPoolExecutor workers |
 | `account_cache_ttl_hours` | `24` | Account metadata cache TTL |
 | `alarm_sns_topic_arn` | `""` | SNS topic for CloudWatch alarms |
 | `health_alert_sns_topic_arn` | `""` | SNS topic for health event alerts |
 | `alerts_enabled` | `true` | Enable proactive health alerts |
-| `digest_window_minutes` | `30` | Minutes to accumulate before sending first incident digest |
+| `digest_window_minutes` | `15` | Minutes to accumulate before sending first incident digest |
 | `correlation_window_minutes` | `60` | Minutes window for grouping same-service events into one incident |
 | `excel_export_enabled` | `true` | Deploy exporter Lambda |
 | `excel_export_schedule` | `rate(1 day)` | Exporter trigger |
@@ -975,7 +975,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | # | Question | Decision | Rationale |
 |---|---|---|---|
 | 1 | Deduplicate cross-org events at storage or API layer? | API layer — store per-org, merge by ARN in response | Preserves per-org affected account data; auditability |
-| 2 | Collection frequency? | 15 minutes | Investigations can escalate quickly; cost delta negligible |
+| 2 | Collection frequency? | 5 minutes | Faster TTD (~20 min worst case); digest window reduced to 15 min to match — cost delta negligible |
 | 3 | Pagination token format? | Base64-encoded DynamoDB `LastEvaluatedKey` as `next_token` | Consistent with AWS SDK conventions |
 | 4 | API auth? | IAM SigV4 only + IP allowlist resource policy | API key auth removed — browser dashboard uses Web Crypto API for SigV4 signing |
 | 5 | Include closed investigations in 7-day window? | Yes | Useful for post-incident review; TTL handles expiry |
@@ -995,6 +995,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | 2026-03-14 | Added `event_classifier.py` — operational flag + severity | §7 |
 | 2026-03-14 | Added `alert_dispatcher.py` — SNS alerting with dedup | §8 |
 | 2026-03-15 | Rewrote `alert_dispatcher.py` — digest mode + service-level incident correlation; added `DIGEST_WINDOW_MINUTES` / `CORRELATION_WINDOW_MINUTES` env vars | §8 |
+| 2026-03-15 | Reduced collection frequency 15 min → 5 min; digest window 30 min → 15 min for ~20 min worst-case TTD | §6, §8, §21 |
 | 2026-03-14 | Added `exporter/` Lambda — daily Excel report to S3 | §11 |
 | 2026-03-14 | Added SNS + S3 VPC endpoints | §14 vpc_endpoints |
 | 2026-03-14 | Added exporter IAM role; collector gains SNS Publish | §14 iam |

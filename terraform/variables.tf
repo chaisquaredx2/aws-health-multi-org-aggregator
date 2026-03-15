@@ -130,7 +130,7 @@ variable "collection_window_days" {
 variable "collection_schedule" {
   description = "EventBridge cron expression for the collector Lambda."
   type        = string
-  default     = "rate(15 minutes)"
+  default     = "rate(5 minutes)"
 }
 
 variable "max_concurrent_orgs" {
@@ -190,7 +190,7 @@ variable "log_retention_days" {
 variable "digest_window_minutes" {
   description = "Minutes to accumulate events before sending the first incident digest alert."
   type        = number
-  default     = 30
+  default     = 15
 }
 
 variable "correlation_window_minutes" {
