@@ -296,3 +296,29 @@ resource "aws_iam_role_policy" "exporter" {
     ]
   })
 }
+
+# ── Dashboard consumer policy ──────────────────────────────────────────────
+# Attach this managed policy to any IAM user/role that needs dashboard access.
+# e.g.: aws iam attach-user-policy --user-name bob --policy-arn <output>
+
+resource "aws_iam_policy" "dashboard_consumer" {
+  name        = "${var.project_name}-dashboard-consumer"
+  description = "Allows calling the Health Aggregator consumer API (execute-api:Invoke with SigV4)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeConsumerAPI"
+        Effect   = "Allow"
+        Action   = "execute-api:Invoke"
+        Resource = "${aws_api_gateway_rest_api.consumer.execution_arn}/*"
+      }
+    ]
+  })
+}
+
+output "dashboard_consumer_policy_arn" {
+  description = "Attach this policy to any IAM user/role that needs dashboard access."
+  value       = aws_iam_policy.dashboard_consumer.arn
+}

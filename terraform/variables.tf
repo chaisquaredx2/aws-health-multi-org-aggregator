@@ -185,6 +185,14 @@ variable "log_retention_days" {
 
 # ── Excel export ───────────────────────────────────────────────────────────────
 
+# ── Consumer API access control ───────────────────────────────────────────────
+
+variable "consumer_api_allowed_cidrs" {
+  description = "IP CIDR ranges allowed to call the consumer API. Empty list = no IP restriction (not recommended)."
+  type        = list(string)
+  default     = []
+}
+
 variable "excel_export_enabled" {
   description = "Deploy the Excel exporter Lambda and its daily EventBridge schedule."
   type        = bool

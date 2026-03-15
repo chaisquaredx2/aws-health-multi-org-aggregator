@@ -166,8 +166,7 @@ resource "aws_api_gateway_method" "proxy" {
   rest_api_id      = aws_api_gateway_rest_api.consumer.id
   resource_id      = aws_api_gateway_resource.proxy.id
   http_method      = "ANY"
-  authorization    = "NONE"
-  api_key_required = true
+  authorization    = "AWS_IAM"
 }
 
 # OPTIONS (CORS preflight) — no API key required

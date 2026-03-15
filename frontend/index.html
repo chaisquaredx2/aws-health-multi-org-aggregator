@@ -90,17 +90,30 @@
 
 <!-- Settings Modal -->
 <div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;padding:2rem;width:480px;max-width:95vw;">
+  <div style="background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;padding:2rem;width:520px;max-width:95vw;">
     <h5 class="mb-3"><i class="bi bi-gear me-2"></i>Settings</h5>
     <div class="mb-3">
       <label class="form-label text-secondary" style="font-size:.8rem;">API URL</label>
       <input type="text" id="cfg-api-url" class="form-control" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/v1" />
-      <div class="form-text text-secondary">Found in Terraform outputs: <code>consumer_api_url</code></div>
+      <div class="form-text text-secondary">Terraform output: <code>consumer_api_url</code></div>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-8">
+        <label class="form-label text-secondary" style="font-size:.8rem;">AWS Access Key ID</label>
+        <input type="text" id="cfg-access-key-id" class="form-control" placeholder="AKIA..." autocomplete="off" />
+      </div>
+      <div class="col-4">
+        <label class="form-label text-secondary" style="font-size:.8rem;">Region</label>
+        <input type="text" id="cfg-region" class="form-control" placeholder="us-east-1" />
+      </div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label text-secondary" style="font-size:.8rem;">AWS Secret Access Key</label>
+      <input type="password" id="cfg-secret-key" class="form-control" autocomplete="off" />
     </div>
     <div class="mb-4">
-      <label class="form-label text-secondary" style="font-size:.8rem;">API Key</label>
-      <input type="password" id="cfg-api-key" class="form-control" placeholder="Your X-Api-Key value" />
-      <div class="form-text text-secondary">Get it: <code>terraform output -raw dashboard_api_key</code></div>
+      <label class="form-label text-secondary" style="font-size:.8rem;">Session Token <span style="font-weight:400">(optional — for temporary credentials / assumed role)</span></label>
+      <input type="password" id="cfg-session-token" class="form-control" autocomplete="off" />
     </div>
     <div class="d-flex justify-content-end gap-2">
       <button class="btn btn-sm btn-secondary" onclick="closeSettings()">Cancel</button>
@@ -288,15 +301,18 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let API_URL = localStorage.getItem('ha_api_url') || '';
-let API_KEY = localStorage.getItem('ha_api_key') || '';
+let API_URL          = localStorage.getItem('ha_api_url')          || '';
+let AWS_ACCESS_KEY   = localStorage.getItem('ha_access_key_id')    || '';
+let AWS_SECRET_KEY   = localStorage.getItem('ha_secret_key')       || '';
+let AWS_SESSION_TOKEN = localStorage.getItem('ha_session_token')   || '';
+let AWS_REGION       = localStorage.getItem('ha_region')           || 'us-east-1';
 let _issues = [], _investigations = [], _orgs = [];
 let _activeTab = 'issues';
 let _autoRefreshTimer = null;
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  if (!API_URL || !API_KEY) {
+  if (!API_URL || !AWS_ACCESS_KEY || !AWS_SECRET_KEY) {
     openSettings();
   } else {
     loadAll();
@@ -314,34 +330,95 @@ function setupAutoRefresh() {
 
 // ── Settings ──────────────────────────────────────────────────────────────
 function openSettings() {
-  document.getElementById('cfg-api-url').value = API_URL;
-  document.getElementById('cfg-api-key').value = API_KEY;
+  document.getElementById('cfg-api-url').value      = API_URL;
+  document.getElementById('cfg-access-key-id').value = AWS_ACCESS_KEY;
+  document.getElementById('cfg-secret-key').value   = AWS_SECRET_KEY;
+  document.getElementById('cfg-session-token').value = AWS_SESSION_TOKEN;
+  document.getElementById('cfg-region').value       = AWS_REGION;
   document.getElementById('settings-modal').style.display = 'flex';
 }
 function closeSettings() {
   document.getElementById('settings-modal').style.display = 'none';
 }
 function saveSettings() {
-  API_URL = document.getElementById('cfg-api-url').value.trim().replace(/\/$/, '');
-  API_KEY = document.getElementById('cfg-api-key').value.trim();
-  localStorage.setItem('ha_api_url', API_URL);
-  localStorage.setItem('ha_api_key', API_KEY);
+  API_URL           = document.getElementById('cfg-api-url').value.trim().replace(/\/$/, '');
+  AWS_ACCESS_KEY    = document.getElementById('cfg-access-key-id').value.trim();
+  AWS_SECRET_KEY    = document.getElementById('cfg-secret-key').value.trim();
+  AWS_SESSION_TOKEN = document.getElementById('cfg-session-token').value.trim();
+  AWS_REGION        = document.getElementById('cfg-region').value.trim() || 'us-east-1';
+  localStorage.setItem('ha_api_url',       API_URL);
+  localStorage.setItem('ha_access_key_id', AWS_ACCESS_KEY);
+  localStorage.setItem('ha_secret_key',    AWS_SECRET_KEY);
+  localStorage.setItem('ha_session_token', AWS_SESSION_TOKEN);
+  localStorage.setItem('ha_region',        AWS_REGION);
   closeSettings();
   loadAll();
 }
 
+// ── SigV4 signing (Web Crypto API) ────────────────────────────────────────
+async function _sha256hex(msg) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+async function _hmac(keyData, msg) {
+  const key = await crypto.subtle.importKey(
+    'raw', typeof keyData === 'string' ? new TextEncoder().encode(keyData) : keyData,
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign(
+    'HMAC', key, new TextEncoder().encode(msg)
+  ));
+}
+async function _signingKey(secret, dateStamp, region, service) {
+  let k = await _hmac('AWS4' + secret, dateStamp);
+  k = await _hmac(k, region);
+  k = await _hmac(k, service);
+  return _hmac(k, 'aws4_request');
+}
+async function sigv4Headers(method, fullUrl) {
+  const now      = new Date();
+  const amzDate  = now.toISOString().replace(/[:\-]|\.\d{3}/g,'').slice(0,15)+'Z';
+  const dateStamp = amzDate.slice(0,8);
+  const url      = new URL(fullUrl);
+  const host     = url.host;
+  const path     = url.pathname || '/';
+  const qs       = [...url.searchParams.entries()]
+    .sort(([a],[b]) => a < b ? -1 : 1)
+    .map(([k,v]) => encodeURIComponent(k)+'='+encodeURIComponent(v))
+    .join('&');
+
+  const hdrs = { host, 'x-amz-date': amzDate };
+  if (AWS_SESSION_TOKEN) hdrs['x-amz-security-token'] = AWS_SESSION_TOKEN;
+  const sortedKeys   = Object.keys(hdrs).sort();
+  const canonHdrs    = sortedKeys.map(k => k+':'+hdrs[k]+'\n').join('');
+  const signedHdrs   = sortedKeys.join(';');
+  const payloadHash  = await _sha256hex('');
+  const canonRequest = [method, path, qs, canonHdrs, signedHdrs, payloadHash].join('\n');
+
+  const credScope    = `${dateStamp}/${AWS_REGION}/execute-api/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, await _sha256hex(canonRequest)].join('\n');
+  const sigKey       = await _signingKey(AWS_SECRET_KEY, dateStamp, AWS_REGION, 'execute-api');
+  const sigArr       = await _hmac(sigKey, stringToSign);
+  const signature    = Array.from(sigArr).map(b => b.toString(16).padStart(2,'0')).join('');
+
+  const auth = `AWS4-HMAC-SHA256 Credential=${AWS_ACCESS_KEY}/${credScope}, SignedHeaders=${signedHdrs}, Signature=${signature}`;
+  const out  = { Authorization: auth, 'x-amz-date': amzDate };
+  if (AWS_SESSION_TOKEN) out['x-amz-security-token'] = AWS_SESSION_TOKEN;
+  return out;
+}
+
 // ── API ────────────────────────────────────────────────────────────────────
 async function apiFetch(path) {
-  const res = await fetch(API_URL + path, {
-    headers: { 'X-Api-Key': API_KEY }
-  });
+  const url     = API_URL + path;
+  const headers = await sigv4Headers('GET', url);
+  const res     = await fetch(url, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status} on ${path}`);
   return res.json();
 }
 
 // ── Load all data ──────────────────────────────────────────────────────────
 async function loadAll() {
-  if (!API_URL || !API_KEY) return;
+  if (!API_URL || !AWS_ACCESS_KEY || !AWS_SECRET_KEY) return;
   showSpinner(true);
   try {
     const [summaryResp, issuesResp, investResp] = await Promise.all([
