@@ -218,7 +218,7 @@ PK (String): org_id
 | `events_in_window` | N | Count of events collected in last run |
 | `updated_at` | S | ISO 8601 UTC of this record's last update |
 
-#### Example Item
+#### Example Item (org collection state)
 
 ```json
 {
@@ -231,6 +231,58 @@ PK (String): org_id
   "updated_at":          "2026-03-13T12:00:00Z"
 }
 ```
+
+#### Incident Items (alert_dispatcher correlation)
+
+The same table also stores incident records written by `alert_dispatcher.py`. These use a different `pk` prefix and do **not** share the org-state schema.
+
+```
+PK (String): incident#{service}#{start_bucket}
+```
+
+`start_bucket` is the ISO UTC string of the `start_time` floored to the nearest `CORRELATION_WINDOW_MINUTES` boundary (e.g. `20260313T0800` for a 60-min window).
+
+| Attribute | Type | Description |
+|---|---|---|
+| `pk` | S | `incident#{service}#{start_bucket}` |
+| `service` | S | AWS service name (e.g. `EC2`) |
+| `start_bucket` | S | `YYYYMMDDTHHMM` floor of earliest event start |
+| `event_arns` | L | Deduplicated list of correlated event ARNs |
+| `regions` | L | Deduplicated list of AWS regions |
+| `org_ids` | L | Deduplicated list of org IDs |
+| `severities` | L | Deduplicated list of severity values |
+| `event_type_codes` | L | Deduplicated list of event type codes |
+| `affected_account_count` | N | Maximum `affected_account_count` seen across all correlated events |
+| `event_count` | N | Total number of correlated event ARNs |
+| `first_seen` | S | ISO 8601 UTC when incident was first created |
+| `last_updated` | S | ISO 8601 UTC of most recent merge |
+| `alert_sent_at` | S (nullable) | ISO 8601 UTC when the first digest was published; absent until first alert |
+| `last_alerted_account_count` | N | `affected_account_count` snapshot at last alert (used for re-alert threshold) |
+| `last_alerted_regions` | L | Regions snapshot at last alert (used to detect spreading) |
+
+#### Example Item (incident)
+
+```json
+{
+  "pk":                         "incident#EC2#20260313T0800",
+  "service":                    "EC2",
+  "start_bucket":               "20260313T0800",
+  "event_arns":                 ["arn:aws:health:us-east-1::event/EC2/...XYZ", "arn:aws:health:eu-west-1::event/EC2/...ABC"],
+  "regions":                    ["us-east-1", "eu-west-1"],
+  "org_ids":                    ["o-abc123def456", "o-xyz987uvw654"],
+  "severities":                 ["critical"],
+  "event_type_codes":           ["AWS_EC2_OPERATIONAL_ISSUE"],
+  "affected_account_count":     142,
+  "event_count":                2,
+  "first_seen":                 "2026-03-13T08:02:00Z",
+  "last_updated":               "2026-03-13T08:07:00Z",
+  "alert_sent_at":              "2026-03-13T08:17:00Z",
+  "last_alerted_account_count": 142,
+  "last_alerted_regions":       ["us-east-1", "eu-west-1"]
+}
+```
+
+> Incident items have no TTL — they persist until manually removed or until DynamoDB on-demand scaling would warrant cleanup. In practice volumes are low (one item per `(service, 60-min window)` per outage).
 
 ---
 

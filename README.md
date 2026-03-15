@@ -8,7 +8,7 @@ Aggregate AWS Health events across **multiple AWS Organizations** using delegate
 
 | Capability | Details |
 |---|---|
-| **Multi-org collection** | Assumes IAM roles into each org's delegated Health admin account every 15 minutes |
+| **Multi-org collection** | Assumes IAM roles into each org's delegated Health admin account every 5 minutes |
 | **Two event sections** | `issue` (confirmed disruptions) + `investigation` (AWS team investigating, scope unknown) |
 | **REST API** | Events, summary, org status — filterable by service, region, status, environment, org |
 | **Event classification** | Operational vs. control-plane; severity `standard` / `critical` |
@@ -21,7 +21,7 @@ Aggregate AWS Health events across **multiple AWS Organizations** using delegate
 ## Architecture
 
 ```
-EventBridge (15 min)
+EventBridge (5 min)
       │
       ▼
 ┌─────────────────┐   STS AssumeRole   ┌─────────────────────────┐
@@ -79,7 +79,7 @@ aws-health-multi-org-aggregator/
 │   ├── api_gateway_health_proxy.tf # Private API GW + VTL AWS Service Integration
 │   ├── api_key.tf                  # Consumer API resource policy (IAM auth + IP allowlist)
 │   ├── dynamodb.tf                 # events, account-metadata, collection-state tables
-│   ├── eventbridge.tf              # 15-min collector schedule + daily exporter schedule
+│   ├── eventbridge.tf              # 5-min collector schedule + daily exporter schedule
 │   ├── iam.tf                      # IAM roles + dashboard-consumer managed policy
 │   ├── kms.tf                      # Single KMS key for DynamoDB, SSM, S3, Lambda env
 │   ├── lambda.tf                   # Lambda functions + consumer API GW (AWS_IAM auth)
@@ -239,11 +239,17 @@ Each collected event is tagged by `event_classifier.py`:
 
 ## Alerting
 
-`alert_dispatcher.py` runs after every collection cycle. It publishes a structured message to the configured SNS topic.
+`alert_dispatcher.py` runs after every collection cycle. It uses **incident correlation + digest mode** to suppress per-ARN alert storms during large outages.
 
-**Trigger criteria** (from `aws-health-monitor`):
-- Any new operational event is in `us-east-1`, **OR**
-- New operational events span **2+ regions**
+**How it works:**
+
+1. **Correlate** — new operational events (`status=open`, `is_operational=true`) are grouped by `(service, start_time_bucket)`. Events for the same service that start within the same `CORRELATION_WINDOW_MINUTES` window are merged into a single incident record in the `collection-state` DynamoDB table.
+
+2. **Digest** — incidents accumulate for `DIGEST_WINDOW_MINUTES` (default 15 min) before the first SNS alert fires. With a 5-min collection cycle, ~3 collection runs aggregate before the alert goes out — by then most related ARNs from the same outage are already correlated.
+
+3. **Re-alert** — after the initial digest, subsequent alerts are suppressed unless:
+   - `affected_account_count` doubles since the last alert, **OR**
+   - new regions are added (outage is spreading)
 
 **Priority:**
 - `HIGH` — multi-region AND more than 100 affected accounts
@@ -251,13 +257,15 @@ Each collected event is tagged by `event_classifier.py`:
 
 **Delivery:** Lambda publishes to SNS via the SNS VPC endpoint. SNS delivers from AWS's managed network — add PagerDuty, email, or Slack subscriptions directly to the SNS topic.
 
-**Deduplication:** Events already alerted with the same status are suppressed (tracked in the `collection-state` DynamoDB table).
+**Worst-case time-to-alert:** ~20 minutes (up to 5 min before first collection + 15 min digest window).
 
 Configure in `terraform.tfvars`:
 
 ```hcl
 health_alert_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-event-alerts"
 alerts_enabled             = true
+digest_window_minutes      = 15   # accumulate before first alert
+correlation_window_minutes = 60   # group same-service events into one incident
 ```
 
 ---
@@ -362,7 +370,9 @@ create_alert_topic         = false
 health_alert_sns_topic_arn = "arn:aws:sns:..."
 
 # ── Alerting
-alerts_enabled = true
+alerts_enabled             = true
+digest_window_minutes      = 15   # accumulate before first alert (~20 min worst-case TTD)
+correlation_window_minutes = 60   # group same-service events into one incident
 
 # ── Excel export
 excel_export_enabled  = true
@@ -371,7 +381,7 @@ export_retention_days = 90
 
 # ── Tuning (defaults are fine for most deployments)
 collection_window_days  = 7
-collection_schedule     = "rate(15 minutes)"
+collection_schedule     = "rate(5 minutes)"
 max_concurrent_orgs     = 5
 account_cache_ttl_hours = 24
 log_retention_days      = 90
