@@ -26,12 +26,23 @@ resource "aws_security_group" "lambda" {
   description = "Lambda functions - HTTPS egress to VPC endpoints only"
   vpc_id      = local.vpc_id
 
+  # Interface endpoints (execute-api, ssm, sts, logs, sns) have ENIs in private subnets
   egress {
-    description = "HTTPS to VPC endpoint ENIs (execute-api, ssm, sts, logs)"
+    description = "HTTPS to Interface VPC endpoint ENIs"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = local.private_subnet_cidrs
+  }
+
+  # Gateway endpoints (DynamoDB, S3) route via prefix lists — no subnet CIDR covers them.
+  # No internet gateway exists so 0.0.0.0/0:443 egress is safe (traffic stays in VPC).
+  egress {
+    description = "HTTPS to Gateway VPC endpoints (DynamoDB, S3)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # No ingress — Lambda is invoked by EventBridge / API GW, not by inbound TCP
