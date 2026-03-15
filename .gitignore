@@ -29,6 +29,10 @@ lambda/**/*.so
 lambda/**/__pycache__/
 lambda/**/*.pyc
 
+# Test cache
+tests/**/__pycache__/
+tests/**/*.pyc
+
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
