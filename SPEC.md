@@ -205,9 +205,9 @@ Passthrough preserves `nextToken` in responses for Lambda's pagination loop.
 
 **Stage:** `prod`, X-Ray tracing enabled, CloudWatch access logging.
 
-### 5.2 Lambda Client: `lambda/collector/health_proxy_client.py`
+### 5.2 Shared Health Proxy Client: `lambda/shared/health_proxy_client.py`
 
-**Purpose:** SigV4-signed HTTP calls to the private Health Proxy API GW; handles pagination for all 4 methods.
+**Purpose:** SigV4-signed HTTP calls to the private Health Proxy API GW; handles pagination for all 4 methods. Used by both collector and API Lambdas.
 
 **Class:** `HealthProxyClient`
 
@@ -230,7 +230,7 @@ Passthrough preserves `nextToken` in responses for Lambda's pagination loop.
 
 **Constants:** `MAX_RESULTS = 100`, `MAX_RETRIES = 4`, `BASE_RETRY_DELAY_S = 1`
 
-**Shared copy:** `lambda/api/health_proxy_client.py` is a copy of the collector version, synced by `scripts/deploy.sh`. Keep both identical.
+**Shared module:** Used by both collector and API Lambdas via `lambda/shared/health_proxy_client.py`.
 
 ---
 
@@ -959,7 +959,8 @@ All variables defined in `terraform/variables.tf`. Example values in `terraform/
 ```
 pip install lambda/collector/requirements.txt → lambda/collector/
 pip install lambda/api/requirements.txt       → lambda/api/
-cp lambda/collector/health_proxy_client.py    → lambda/api/
+cp lambda/shared/health_proxy_client.py       → lambda/collector/
+cp lambda/shared/health_proxy_client.py       → lambda/api/
 pip install lambda/exporter/requirements.txt  → lambda/exporter/
 terraform init / plan -out .build/tfplan / apply .build/tfplan
 terraform output
