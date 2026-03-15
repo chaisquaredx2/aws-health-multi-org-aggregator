@@ -256,6 +256,8 @@ Passthrough preserves `nextToken` in responses for Lambda's pagination loop.
 | `ACCOUNT_CACHE_TTL_HOURS` | `24` | Account metadata cache TTL |
 | `HEALTH_ALERT_SNS_TOPIC_ARN` | `""` | SNS topic for health event alerts |
 | `ALERTS_ENABLED` | `"true"` | Set `"false"` to disable alerting |
+| `DIGEST_WINDOW_MINUTES` | `"30"` | Minutes to accumulate before sending first incident digest |
+| `CORRELATION_WINDOW_MINUTES` | `"60"` | Minutes window for grouping same-service events into one incident |
 | `LOG_LEVEL` | `"INFO"` | |
 
 **Algorithm:**
@@ -366,40 +368,56 @@ All other services (IAM, Organizations, CloudFormation, Config, CloudTrail, Bill
 
 **File:** `lambda/collector/alert_dispatcher.py`
 
-**Purpose:** After each collection cycle, evaluate written items and publish an SNS alert for new or changed operational events.
+**Purpose:** After each collection cycle, correlate new operational events into incidents and send digest alerts for mature incidents. Designed to suppress the per-ARN / per-region event storm AWS emits during large outages.
 
 **Public function:** `dispatch(events: list[dict], state_table) -> int`
 - `events`: DynamoDB items written in this collection cycle
 - `state_table`: boto3 DynamoDB Table resource for collection-state
-- Returns: number of SNS messages published (0 or 1 per cycle)
+- Returns: number of SNS messages published this cycle
 
-**Env vars used:** `HEALTH_ALERT_SNS_TOPIC_ARN`, `ALERTS_ENABLED`
+**Env vars used:** `HEALTH_ALERT_SNS_TOPIC_ARN`, `ALERTS_ENABLED`, `DIGEST_WINDOW_MINUTES`, `CORRELATION_WINDOW_MINUTES`
 
-**Trigger criteria** — alert if any qualifying event:
-- Is in region `us-east-1`, **OR**
-- Events span 2+ unique regions
+**Step 1 — Filter:** keep only events where `status == "open"` AND `is_operational == True`.
 
-If neither condition is met, no SNS message is published.
+**Step 2 — Correlate into incidents:**
+- Group filtered events by `(service, start_time_bucket)` where `start_time_bucket = floor(start_time / CORRELATION_WINDOW_MINUTES)`
+- For each group, load or create an incident record in `collection_state` with `pk = "incident#{service}#{bucket}"`
+- Merge into the incident: deduplicated `event_arns`, `regions`, `org_ids`, `severities`, `event_type_codes`; take max `affected_account_count`
+
+**Step 3 — Flush digests:**
+- Scan `collection_state` for all `pk` values beginning with `"incident#"`
+- For each incident where `first_seen <= now - DIGEST_WINDOW_MINUTES`:
+  - If never alerted → send digest
+  - If previously alerted AND (`affected_account_count` doubled OR new regions added) → send update digest
+  - Otherwise → suppress
 
 **Priority:**
-- `HIGH` if: multi-region AND total `affected_account_count` across all events > 100
+- `HIGH` if multi-region AND `affected_account_count > 100`
 - `STANDARD` otherwise
 
-**Filtering before evaluation:**
-1. Keep only events where `status == "open"` AND `is_operational == True`
-2. Remove events already alerted with the same status (deduplication via state table)
-
-**Deduplication:**
-- Check `collection_state` table for item with `pk = "alert#{event_arn}"`
-- If exists AND `alerted_status == current status` → skip (already alerted)
-- If exists AND `alerted_status != current status` → re-alert (status changed, e.g. reopened)
-- After publishing: write `{pk: "alert#{event_arn}", alerted_status, alerted_severity, alert_sent_at}` to state table
-
 **SNS message format:**
-- `Subject`: `{priority_label}: AWS Health — {service} {event_type_code} in {region}` (single event) or `{priority_label}: AWS Health — N events across M region(s)` (multiple)
-- `Subject` max 100 chars (SNS limit)
-- `Message` body: human-readable text block (event details grouped by service) + JSON payload for programmatic subscribers
-- `MessageAttributes`: `priority` (String), `affected_accounts` (Number), `regions` (String, comma-separated)
+- `Subject`: `{priority} [{NEW INCIDENT|UPDATE}]: {service} — N event(s), M region(s), K accounts` (max 100 chars)
+- `Message` body: human-readable incident summary + JSON payload for programmatic subscribers
+- `MessageAttributes`: `priority`, `service`, `affected_accounts`, `regions`, `alert_type`
+
+**Incident state schema** (stored in `collection_state` table):
+```
+pk                         "incident#{service}#{start_bucket}"
+service                    e.g. "EC2"
+start_bucket               e.g. "20260315T1000"
+event_arns                 list[str]   — deduplicated ARNs seen
+regions                    list[str]   — deduplicated regions
+org_ids                    list[str]
+severities                 list[str]
+event_type_codes           list[str]
+affected_account_count     int         — max across all events
+event_count                int
+first_seen                 ISO 8601
+last_updated               ISO 8601
+alert_sent_at              ISO 8601 | absent
+last_alerted_account_count int
+last_alerted_regions       list[str]
+```
 
 **VPC delivery:** Lambda publishes to SNS via SNS VPC Interface Endpoint. SNS delivers from AWS-managed network to PagerDuty HTTPS subscription, email, Slack, etc. No internet egress from Lambda needed.
 
@@ -663,11 +681,13 @@ ExclusiveStartKey = decoded(next_token) if next_token else absent
 
 ### Table: `health-aggregator-collection-state`
 
-**PK:** `pk` (S): `org_id` for collection state; `"alert#{event_arn}"` for alert deduplication
+**PK:** `pk` (S) — three item types share this table:
 
-**Collection state item:** `pk`, `org_id`, `org_name`, `last_successful_at`, `last_attempted_at`, `last_error`, `events_in_window`, `updated_at`
+**Collection state item:** `pk = {org_id}`, `org_id`, `org_name`, `last_successful_at`, `last_attempted_at`, `last_error`, `events_in_window`, `updated_at`
 
-**Alert dedup item:** `pk`, `event_arn`, `alerted_status`, `alerted_severity`, `alert_sent_at`
+**Incident item** (alert digest): `pk = "incident#{service}#{start_bucket}"` — see §8 incident state schema for full attribute list.
+
+No longer used: `"alert#{event_arn}"` per-ARN dedup items (replaced by incident-level dedup).
 
 ---
 
@@ -906,6 +926,8 @@ All variables defined in `terraform/variables.tf`. Example values in `terraform/
 | `alarm_sns_topic_arn` | `""` | SNS topic for CloudWatch alarms |
 | `health_alert_sns_topic_arn` | `""` | SNS topic for health event alerts |
 | `alerts_enabled` | `true` | Enable proactive health alerts |
+| `digest_window_minutes` | `30` | Minutes to accumulate before sending first incident digest |
+| `correlation_window_minutes` | `60` | Minutes window for grouping same-service events into one incident |
 | `excel_export_enabled` | `true` | Deploy exporter Lambda |
 | `excel_export_schedule` | `rate(1 day)` | Exporter trigger |
 | `export_retention_days` | `90` | S3 lifecycle expiry |
@@ -972,6 +994,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | 2026-03-14 | Initial implementation: collector, API, health proxy, DynamoDB, Terraform | All |
 | 2026-03-14 | Added `event_classifier.py` — operational flag + severity | §7 |
 | 2026-03-14 | Added `alert_dispatcher.py` — SNS alerting with dedup | §8 |
+| 2026-03-15 | Rewrote `alert_dispatcher.py` — digest mode + service-level incident correlation; added `DIGEST_WINDOW_MINUTES` / `CORRELATION_WINDOW_MINUTES` env vars | §8 |
 | 2026-03-14 | Added `exporter/` Lambda — daily Excel report to S3 | §11 |
 | 2026-03-14 | Added SNS + S3 VPC endpoints | §14 vpc_endpoints |
 | 2026-03-14 | Added exporter IAM role; collector gains SNS Publish | §14 iam |

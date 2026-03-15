@@ -78,6 +78,8 @@ resource "aws_lambda_function" "collector" {
       COLLECTION_WINDOW_DAYS     = tostring(var.collection_window_days)
       MAX_CONCURRENT_ORGS        = tostring(var.max_concurrent_orgs)
       ACCOUNT_CACHE_TTL_HOURS    = tostring(var.account_cache_ttl_hours)
+      DIGEST_WINDOW_MINUTES      = tostring(var.digest_window_minutes)
+      CORRELATION_WINDOW_MINUTES = tostring(var.correlation_window_minutes)
       LOG_LEVEL                  = "INFO"
     }
   }

@@ -185,6 +185,20 @@ variable "log_retention_days" {
 
 # ── Excel export ───────────────────────────────────────────────────────────────
 
+# ── Alerting tuning ───────────────────────────────────────────────────────────
+
+variable "digest_window_minutes" {
+  description = "Minutes to accumulate events before sending the first incident digest alert."
+  type        = number
+  default     = 30
+}
+
+variable "correlation_window_minutes" {
+  description = "Minutes window for grouping same-service events into a single incident."
+  type        = number
+  default     = 60
+}
+
 # ── Consumer API access control ───────────────────────────────────────────────
 
 variable "consumer_api_allowed_cidrs" {
