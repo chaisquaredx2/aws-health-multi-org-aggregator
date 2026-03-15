@@ -24,14 +24,14 @@ data "archive_file" "api" {
 resource "aws_security_group" "lambda" {
   name        = "${var.project_name}-lambda-sg"
   description = "Lambda functions — HTTPS egress to VPC endpoints only"
-  vpc_id      = var.vpc_id
+  vpc_id      = local.vpc_id
 
   egress {
     description = "HTTPS to VPC endpoint ENIs (execute-api, ssm, sts, logs)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = var.private_subnet_cidrs
+    cidr_blocks = local.private_subnet_cidrs
   }
 
   # No ingress — Lambda is invoked by EventBridge / API GW, not by inbound TCP
@@ -52,7 +52,7 @@ resource "aws_lambda_function" "collector" {
   source_code_hash = data.archive_file.collector.output_base64sha256
 
   vpc_config {
-    subnet_ids         = var.private_subnet_ids
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.lambda.id]
   }
 
@@ -103,7 +103,7 @@ resource "aws_lambda_function" "api" {
   source_code_hash = data.archive_file.api.output_base64sha256
 
   vpc_config {
-    subnet_ids         = var.private_subnet_ids
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.lambda.id]
   }
 
@@ -243,7 +243,7 @@ resource "aws_lambda_function" "exporter" {
   source_code_hash = data.archive_file.exporter[0].output_base64sha256
 
   vpc_config {
-    subnet_ids         = var.private_subnet_ids
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.lambda.id]
   }
 

@@ -110,8 +110,3 @@ resource "aws_iam_role_policy" "ssm_automation" {
     ]
   })
 }
-
-output "ssm_automation_role_arn" {
-  description = "IAM role ARN to specify when executing SSM Automation documents from the console."
-  value       = aws_iam_role.ssm_automation.arn
-}

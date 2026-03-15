@@ -143,7 +143,7 @@ resource "aws_iam_role_policy" "collector" {
         Sid      = "SNSPublishAlerts"
         Effect   = "Allow"
         Action   = "sns:Publish"
-        Resource = var.health_alert_sns_topic_arn != "" ? var.health_alert_sns_topic_arn : "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+        Resource = local.health_alert_sns_topic_arn != "" ? local.health_alert_sns_topic_arn : "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
       },
     ]
   })

@@ -39,3 +39,28 @@ output "exporter_function_name" {
   description = "Name of the Excel exporter Lambda (invoke manually to generate a report on-demand)."
   value       = var.excel_export_enabled ? aws_lambda_function.exporter[0].function_name : ""
 }
+
+output "vpc_id" {
+  description = "VPC ID (created or supplied)."
+  value       = local.vpc_id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs (created or supplied)."
+  value       = local.private_subnet_ids
+}
+
+output "alarm_sns_topic_arn" {
+  description = "SNS topic ARN for CloudWatch alarm notifications (created or supplied)."
+  value       = local.alarm_sns_topic_arn
+}
+
+output "health_alert_sns_topic_arn" {
+  description = "SNS topic ARN for health event alerts (created or supplied)."
+  value       = local.health_alert_sns_topic_arn
+}
+
+output "ssm_automation_role_arn" {
+  description = "IAM role ARN to specify when executing SSM Automation documents from the console."
+  value       = aws_iam_role.ssm_automation.arn
+}

@@ -16,26 +16,99 @@ variable "environment" {
   default     = "prod"
 }
 
-# ── VPC ───────────────────────────────────────────────────────────────────────
+# ── VPC — bring your own or create new ────────────────────────────────────────
+#
+# Option A — create a new VPC (default):
+#   create_vpc = true          (Terraform creates VPC + 2 private subnets)
+#   vpc_cidr   = "10.0.0.0/16" (optional, defaults shown)
+#
+# Option B — use an existing VPC:
+#   create_vpc              = false
+#   vpc_id                  = "vpc-..."
+#   private_subnet_ids      = ["subnet-...", "subnet-..."]
+#   private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
+#   private_route_table_ids = ["rtb-...", "rtb-..."]
+
+variable "create_vpc" {
+  description = "Set true to create a new VPC and private subnets. Set false to supply existing IDs below."
+  type        = bool
+  default     = true
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the new VPC (only used when create_vpc = true)."
+  type        = string
+  default     = "10.0.0.0/16"
+}
 
 variable "vpc_id" {
-  description = "VPC ID where both Lambda functions and VPC endpoints are placed."
+  description = "Existing VPC ID (required when create_vpc = false)."
   type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "private_subnet_ids" {
-  description = "Private subnet IDs for Lambda and Interface VPC endpoint ENIs."
+  description = "Existing private subnet IDs (required when create_vpc = false)."
   type        = list(string)
+  default     = null
+  nullable    = true
 }
 
 variable "private_subnet_cidrs" {
-  description = "CIDR blocks of private subnets (used in VPC endpoint security group)."
+  description = "CIDR blocks of existing private subnets (required when create_vpc = false)."
   type        = list(string)
+  default     = null
+  nullable    = true
 }
 
 variable "private_route_table_ids" {
-  description = "Route table IDs for private subnets (used by DynamoDB Gateway endpoint)."
+  description = "Route table IDs for existing private subnets (required when create_vpc = false)."
   type        = list(string)
+  default     = null
+  nullable    = true
+}
+
+# ── SNS topics — bring your own or create new ──────────────────────────────────
+#
+# Option A — create new topics (default):
+#   create_alarm_topic = true
+#   create_alert_topic = true
+#
+# Option B — use existing topics:
+#   create_alarm_topic     = false
+#   alarm_sns_topic_arn    = "arn:aws:sns:..."
+#   create_alert_topic     = false
+#   health_alert_sns_topic_arn = "arn:aws:sns:..."
+
+variable "create_alarm_topic" {
+  description = "Set true to create a new SNS topic for CloudWatch alarm notifications."
+  type        = bool
+  default     = true
+}
+
+variable "create_alert_topic" {
+  description = "Set true to create a new SNS topic for health event alerts."
+  type        = bool
+  default     = true
+}
+
+variable "alarm_sns_topic_arn" {
+  description = "Existing SNS topic ARN for CloudWatch alarm notifications (used when create_alarm_topic = false)."
+  type        = string
+  default     = ""
+}
+
+variable "health_alert_sns_topic_arn" {
+  description = "Existing SNS topic ARN for health event alerts (used when create_alert_topic = false). Add PagerDuty/Slack subscriptions to this topic."
+  type        = string
+  default     = ""
+}
+
+variable "alerts_enabled" {
+  description = "Enable proactive health event alerts via SNS after each collection cycle."
+  type        = bool
+  default     = true
 }
 
 # ── Cross-org IAM ─────────────────────────────────────────────────────────────
@@ -83,7 +156,7 @@ variable "lambda_runtime" {
 variable "collector_timeout_seconds" {
   description = "Collector Lambda timeout. Increase for large orgs."
   type        = number
-  default     = 300  # 5 min
+  default     = 300
 }
 
 variable "api_timeout_seconds" {
@@ -108,24 +181,6 @@ variable "log_retention_days" {
   description = "CloudWatch log group retention."
   type        = number
   default     = 90
-}
-
-variable "alarm_sns_topic_arn" {
-  description = "SNS topic ARN for CloudWatch alarm notifications. Leave empty to skip alarm actions."
-  type        = string
-  default     = ""
-}
-
-variable "health_alert_sns_topic_arn" {
-  description = "SNS topic ARN for health event alerts (new/changed operational events). Can be the same as alarm_sns_topic_arn or a dedicated topic with PagerDuty/Slack subscriptions. Leave empty to disable health event alerting."
-  type        = string
-  default     = ""
-}
-
-variable "alerts_enabled" {
-  description = "Enable proactive health event alerts via SNS after each collection cycle."
-  type        = bool
-  default     = true
 }
 
 # ── Excel export ───────────────────────────────────────────────────────────────

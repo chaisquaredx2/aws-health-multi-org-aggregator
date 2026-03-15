@@ -4,11 +4,30 @@ aws_region   = "us-east-1"
 project_name = "health-aggregator"
 environment  = "prod"
 
-# ── VPC (required) ────────────────────────────────────────────────────────────
-vpc_id                  = "vpc-0abc123def456789a"
-private_subnet_ids      = ["subnet-0aaa111", "subnet-0bbb222"]
-private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
-private_route_table_ids = ["rtb-0abc123", "rtb-0def456"]
+# ── VPC — choose one option ────────────────────────────────────────────────────
+
+# Option A: Let Terraform create a new private VPC (default)
+create_vpc = true
+vpc_cidr   = "10.0.0.0/16"   # /20 subnets carved per AZ; no internet egress
+
+# Option B: Bring your own VPC (comment out Option A and uncomment below)
+# create_vpc              = false
+# vpc_id                  = "vpc-0abc123def456789a"
+# private_subnet_ids      = ["subnet-0aaa111", "subnet-0bbb222"]
+# private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
+# private_route_table_ids = ["rtb-0abc123", "rtb-0def456"]
+
+# ── SNS topics — choose one option ────────────────────────────────────────────
+
+# Option A: Let Terraform create new SNS topics (default)
+create_alarm_topic = true   # CloudWatch alarm notifications
+create_alert_topic = true   # Health event alerts (add PagerDuty/Slack subscriptions after deploy)
+
+# Option B: Bring your own SNS topics (comment out Option A and uncomment below)
+# create_alarm_topic         = false
+# alarm_sns_topic_arn        = "arn:aws:sns:us-east-1:123456789012:health-aggregator-alarms"
+# create_alert_topic         = false
+# health_alert_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-event-alerts"
 
 # ── Cross-org IAM ─────────────────────────────────────────────────────────────
 # Name of the role to assume in each org's delegated admin account.
@@ -16,13 +35,7 @@ private_route_table_ids = ["rtb-0abc123", "rtb-0def456"]
 cross_org_role_name = "HealthAggregatorReadRole"
 
 # ── Alerting ──────────────────────────────────────────────────────────────────
-# CloudWatch alarm actions (infrastructure alerts)
-alarm_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-aggregator-alerts"
-
-# Health event alerts — new/changed operational events (can be same or separate topic)
-# Add PagerDuty HTTPS subscription to this topic for on-call paging.
-# health_alert_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-event-alerts"
-# alerts_enabled             = true
+alerts_enabled = true
 
 # ── Excel export (optional) ───────────────────────────────────────────────────
 # excel_export_enabled  = true

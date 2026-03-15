@@ -2,9 +2,6 @@
 # CloudWatch alarms and dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 
-locals {
-  alarm_actions = var.alarm_sns_topic_arn != "" ? [var.alarm_sns_topic_arn] : []
-}
 
 # ── Collector Lambda ──────────────────────────────────────────────────────────
 
