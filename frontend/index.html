@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Health Aggregator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <style>
+    :root {
+      --aws-orange: #FF9900;
+      --aws-dark:   #232F3E;
+      --aws-mid:    #31465F;
+      --aws-light:  #4A90D9;
+    }
+    body { background: #0f1117; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: var(--aws-dark) !important; border-bottom: 2px solid var(--aws-orange); }
+    .navbar-brand { color: var(--aws-orange) !important; font-weight: 700; font-size: 1.2rem; }
+    .kpi-card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 12px; padding: 1.2rem 1.5rem; }
+    .kpi-card .value { font-size: 2.4rem; font-weight: 700; line-height: 1; }
+    .kpi-card .label { font-size: 0.78rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; margin-top: .3rem; }
+    .kpi-issue    .value { color: #f87171; }
+    .kpi-invest   .value { color: #fbbf24; }
+    .kpi-critical .value { color: #fb923c; }
+    .kpi-accounts .value { color: #34d399; }
+    .nav-tabs .nav-link { color: #94a3b8; border: none; border-bottom: 2px solid transparent; }
+    .nav-tabs .nav-link.active { color: var(--aws-orange); border-bottom: 2px solid var(--aws-orange); background: none; }
+    .nav-tabs { border-bottom: 1px solid #2d3748; }
+    .filter-bar { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 8px; padding: .75rem 1rem; }
+    .filter-bar select, .filter-bar input { background: #0f1117; color: #e2e8f0; border: 1px solid #2d3748; border-radius: 6px; font-size: .85rem; }
+    .filter-bar select:focus, .filter-bar input:focus { border-color: var(--aws-orange); box-shadow: none; outline: none; }
+    table { font-size: .85rem; }
+    thead th { background: #1a1f2e; color: #94a3b8; border-color: #2d3748 !important; font-weight: 600; text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; position: sticky; top: 0; z-index: 1; }
+    tbody tr { border-color: #2d3748 !important; cursor: pointer; }
+    tbody tr:hover { background: #1e2535 !important; }
+    tbody td { border-color: #2d3748 !important; vertical-align: middle; }
+    .badge-open     { background: #dc2626; }
+    .badge-closed   { background: #16a34a; }
+    .badge-upcoming { background: #d97706; }
+    .badge-critical { background: #ea580c; }
+    .badge-standard { background: #475569; }
+    .badge-issue    { background: #7c3aed; }
+    .badge-investigation { background: #0369a1; }
+    .service-tag { background: #1e3a5f; color: #93c5fd; border-radius: 4px; padding: 2px 7px; font-size: .78rem; }
+    .region-tag  { background: #1a3a2a; color: #6ee7b7; border-radius: 4px; padding: 2px 7px; font-size: .78rem; }
+    .settings-btn { background: none; border: 1px solid #2d3748; color: #94a3b8; border-radius: 6px; padding: 4px 10px; }
+    .settings-btn:hover { border-color: var(--aws-orange); color: var(--aws-orange); }
+    .modal-content { background: #1a1f2e; color: #e2e8f0; border: 1px solid #2d3748; }
+    .modal-header { border-bottom: 1px solid #2d3748; }
+    .modal-footer { border-top: 1px solid #2d3748; }
+    .form-control, .form-select { background: #0f1117; color: #e2e8f0; border: 1px solid #2d3748; }
+    .form-control:focus, .form-select:focus { background: #0f1117; color: #e2e8f0; border-color: var(--aws-orange); box-shadow: none; }
+    .btn-orange { background: var(--aws-orange); color: #000; font-weight: 600; border: none; }
+    .btn-orange:hover { background: #e08800; color: #000; }
+    .detail-panel { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; padding: 1.5rem; margin-top: 1rem; }
+    .org-chip { display: inline-block; background: #1e3a5f; border-radius: 20px; padding: 3px 12px; font-size: .78rem; color: #93c5fd; margin: 2px; }
+    #toast-container { position: fixed; top: 70px; right: 20px; z-index: 9999; }
+    .toast { background: #1a1f2e; color: #e2e8f0; border: 1px solid #2d3748; }
+    .spinner-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 9998; display: flex; align-items: center; justify-content: center; }
+    .empty-state { text-align: center; padding: 4rem 0; color: #475569; }
+    .empty-state i { font-size: 3rem; margin-bottom: 1rem; }
+    .refresh-indicator { font-size: .75rem; color: #64748b; }
+    .table-responsive { max-height: 60vh; overflow-y: auto; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f1117; }
+    ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg px-3 py-2">
+  <span class="navbar-brand">
+    <i class="bi bi-shield-check me-2"></i>AWS Health Aggregator
+  </span>
+  <div class="ms-auto d-flex align-items-center gap-3">
+    <span class="refresh-indicator" id="last-refreshed">Never refreshed</span>
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" id="auto-refresh" checked />
+      <label class="form-check-label text-secondary" for="auto-refresh" style="font-size:.8rem">Auto</label>
+    </div>
+    <button class="settings-btn" onclick="document.getElementById('settings-modal').style.display='flex'" title="Settings">
+      <i class="bi bi-gear"></i>
+    </button>
+    <button class="btn btn-sm btn-orange" onclick="loadAll()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
+  </div>
+</nav>
+
+<!-- Settings Modal -->
+<div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;padding:2rem;width:480px;max-width:95vw;">
+    <h5 class="mb-3"><i class="bi bi-gear me-2"></i>Settings</h5>
+    <div class="mb-3">
+      <label class="form-label text-secondary" style="font-size:.8rem;">API URL</label>
+      <input type="text" id="cfg-api-url" class="form-control" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/v1" />
+      <div class="form-text text-secondary">Found in Terraform outputs: <code>consumer_api_url</code></div>
+    </div>
+    <div class="mb-4">
+      <label class="form-label text-secondary" style="font-size:.8rem;">API Key</label>
+      <input type="password" id="cfg-api-key" class="form-control" placeholder="Your X-Api-Key value" />
+      <div class="form-text text-secondary">Get it: <code>terraform output -raw dashboard_api_key</code></div>
+    </div>
+    <div class="d-flex justify-content-end gap-2">
+      <button class="btn btn-sm btn-secondary" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-sm btn-orange" onclick="saveSettings()">Save &amp; Reload</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<div class="container-fluid px-4 py-3">
+
+  <!-- KPI Cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="kpi-card kpi-issue">
+        <div class="value" id="kpi-issues">—</div>
+        <div class="label"><i class="bi bi-exclamation-circle me-1"></i>Open Issues</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card kpi-invest">
+        <div class="value" id="kpi-invest">—</div>
+        <div class="label"><i class="bi bi-search me-1"></i>Investigations</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card kpi-critical">
+        <div class="value" id="kpi-critical">—</div>
+        <div class="label"><i class="bi bi-fire me-1"></i>Critical Events</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="kpi-card kpi-accounts">
+        <div class="value" id="kpi-accounts">—</div>
+        <div class="label"><i class="bi bi-people me-1"></i>Affected Accounts</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-0" id="main-tabs">
+    <li class="nav-item">
+      <a class="nav-link active" href="#" onclick="switchTab('issues',this)">
+        <i class="bi bi-exclamation-triangle me-1"></i>Issues
+        <span class="badge ms-1" id="tab-badge-issues" style="background:#dc2626;">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" href="#" onclick="switchTab('investigations',this)">
+        <i class="bi bi-binoculars me-1"></i>Investigations
+        <span class="badge ms-1" id="tab-badge-investigations" style="background:#0369a1;">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" href="#" onclick="switchTab('orgs',this)">
+        <i class="bi bi-diagram-3 me-1"></i>Orgs
+      </a>
+    </li>
+  </ul>
+
+  <!-- Filter bar (events tabs) -->
+  <div class="filter-bar mb-2 mt-0" id="filter-bar" style="border-top:none;border-radius:0 0 8px 8px;">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select id="f-status" onchange="applyFilters()" class="form-select form-select-sm">
+          <option value="">All Status</option>
+          <option value="open">Open</option>
+          <option value="closed">Closed</option>
+          <option value="upcoming">Upcoming</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <select id="f-severity" onchange="applyFilters()" class="form-select form-select-sm">
+          <option value="">All Severity</option>
+          <option value="critical">Critical</option>
+          <option value="standard">Standard</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <input id="f-service" type="text" placeholder="Service (e.g. EC2)" class="form-control form-control-sm" style="width:140px" oninput="applyFilters()" />
+      </div>
+      <div class="col-auto">
+        <input id="f-region" type="text" placeholder="Region" class="form-control form-control-sm" style="width:130px" oninput="applyFilters()" />
+      </div>
+      <div class="col-auto">
+        <select id="f-org" onchange="applyFilters()" class="form-select form-select-sm">
+          <option value="">All Orgs</option>
+        </select>
+      </div>
+      <div class="col-auto ms-auto text-secondary" style="font-size:.78rem" id="filter-count"></div>
+    </div>
+  </div>
+
+  <!-- Events Table -->
+  <div id="tab-issues" class="tab-pane">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="tbl-issues">
+        <thead>
+          <tr>
+            <th>Service</th><th>Type</th><th>Region</th>
+            <th>Status</th><th>Severity</th><th>Orgs</th>
+            <th>Accounts</th><th>Start Time</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-issues"></tbody>
+      </table>
+    </div>
+    <div id="empty-issues" class="empty-state d-none">
+      <i class="bi bi-check-circle-fill text-success d-block"></i>
+      No issues in the selected window
+    </div>
+  </div>
+
+  <div id="tab-investigations" class="tab-pane d-none">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="tbl-investigations">
+        <thead>
+          <tr>
+            <th>Service</th><th>Type</th><th>Region</th>
+            <th>Status</th><th>Severity</th><th>Orgs</th>
+            <th>Accounts</th><th>Start Time</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-investigations"></tbody>
+      </table>
+    </div>
+    <div id="empty-investigations" class="empty-state d-none">
+      <i class="bi bi-check-circle-fill text-success d-block"></i>
+      No investigations in the selected window
+    </div>
+  </div>
+
+  <!-- Orgs Tab -->
+  <div id="tab-orgs" class="tab-pane d-none">
+    <div class="table-responsive mt-0" style="max-height:none;">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Org Name</th><th>Org ID</th>
+            <th>Open Issues</th><th>Open Investigations</th>
+            <th>Total Events</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-orgs"></tbody>
+      </table>
+    </div>
+    <div id="empty-orgs" class="empty-state d-none">
+      <i class="bi bi-diagram-3 d-block"></i>
+      No orgs registered yet
+    </div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="detail-panel" class="detail-panel d-none mt-3">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <h6 class="mb-0" id="detail-title">Event Details</h6>
+      <button class="btn-close btn-close-white" onclick="closeDetail()"></button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+
+  <!-- Top Services / Regions -->
+  <div class="row g-3 mt-2">
+    <div class="col-md-6">
+      <div class="kpi-card">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span style="font-size:.78rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Top Affected Services</span>
+        </div>
+        <div id="top-services"></div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="kpi-card">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span style="font-size:.78rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Top Affected Regions</span>
+        </div>
+        <div id="top-regions"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let API_URL = localStorage.getItem('ha_api_url') || '';
+let API_KEY = localStorage.getItem('ha_api_key') || '';
+let _issues = [], _investigations = [], _orgs = [];
+let _activeTab = 'issues';
+let _autoRefreshTimer = null;
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  if (!API_URL || !API_KEY) {
+    openSettings();
+  } else {
+    loadAll();
+  }
+  setupAutoRefresh();
+  document.getElementById('auto-refresh').addEventListener('change', setupAutoRefresh);
+});
+
+function setupAutoRefresh() {
+  clearInterval(_autoRefreshTimer);
+  if (document.getElementById('auto-refresh').checked) {
+    _autoRefreshTimer = setInterval(loadAll, 5 * 60 * 1000);
+  }
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('cfg-api-url').value = API_URL;
+  document.getElementById('cfg-api-key').value = API_KEY;
+  document.getElementById('settings-modal').style.display = 'flex';
+}
+function closeSettings() {
+  document.getElementById('settings-modal').style.display = 'none';
+}
+function saveSettings() {
+  API_URL = document.getElementById('cfg-api-url').value.trim().replace(/\/$/, '');
+  API_KEY = document.getElementById('cfg-api-key').value.trim();
+  localStorage.setItem('ha_api_url', API_URL);
+  localStorage.setItem('ha_api_key', API_KEY);
+  closeSettings();
+  loadAll();
+}
+
+// ── API ────────────────────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const res = await fetch(API_URL + path, {
+    headers: { 'X-Api-Key': API_KEY }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} on ${path}`);
+  return res.json();
+}
+
+// ── Load all data ──────────────────────────────────────────────────────────
+async function loadAll() {
+  if (!API_URL || !API_KEY) return;
+  showSpinner(true);
+  try {
+    const [summaryResp, issuesResp, investResp] = await Promise.all([
+      apiFetch('/summary'),
+      apiFetch('/events?category=issue&page_size=200'),
+      apiFetch('/events?category=investigation&page_size=200'),
+    ]);
+
+    const summary = summaryResp.summary;
+    _issues        = issuesResp.data || [];
+    _investigations = investResp.data || [];
+    _orgs          = summary.by_org || [];
+
+    // KPIs
+    const openIssues = summary.issues?.open || 0;
+    const openInvest = summary.investigations?.open || 0;
+    const critical   = [..._issues, ..._investigations].filter(e => e.severity === 'critical' && e.status === 'open').length;
+
+    document.getElementById('kpi-issues').textContent   = openIssues;
+    document.getElementById('kpi-invest').textContent   = openInvest;
+    document.getElementById('kpi-critical').textContent = critical;
+    document.getElementById('kpi-accounts').textContent = summary.affected_account_count || 0;
+
+    // Tab badges
+    document.getElementById('tab-badge-issues').textContent       = _issues.length;
+    document.getElementById('tab-badge-investigations').textContent = _investigations.length;
+
+    // Populate org filter
+    const orgSel = document.getElementById('f-org');
+    const cur = orgSel.value;
+    orgSel.innerHTML = '<option value="">All Orgs</option>';
+    _orgs.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.org_id;
+      opt.textContent = o.org_name ? `${o.org_name} (${o.org_id})` : o.org_id;
+      orgSel.appendChild(opt);
+    });
+    orgSel.value = cur;
+
+    // Top services / regions
+    renderBar('top-services', summary.top_affected_services, 'service', 'event_count', '#4A90D9');
+    renderBar('top-regions',  summary.top_affected_regions,  'region',  'event_count', '#34d399');
+
+    // Render
+    applyFilters();
+    renderOrgs();
+
+    document.getElementById('last-refreshed').textContent =
+      'Refreshed ' + new Date().toLocaleTimeString();
+
+  } catch (e) {
+    toast('Failed to load: ' + e.message, 'danger');
+  } finally {
+    showSpinner(false);
+  }
+}
+
+// ── Filters + render events ────────────────────────────────────────────────
+function applyFilters() {
+  const fStatus   = document.getElementById('f-status').value;
+  const fSeverity = document.getElementById('f-severity').value;
+  const fService  = document.getElementById('f-service').value.trim().toLowerCase();
+  const fRegion   = document.getElementById('f-region').value.trim().toLowerCase();
+  const fOrg      = document.getElementById('f-org').value;
+
+  function filterFn(ev) {
+    if (fStatus   && ev.status !== fStatus) return false;
+    if (fSeverity && ev.severity !== fSeverity) return false;
+    if (fService  && !ev.service?.toLowerCase().includes(fService)) return false;
+    if (fRegion   && !ev.region?.toLowerCase().includes(fRegion)) return false;
+    if (fOrg      && !ev.affected_orgs?.some(o => o.org_id === fOrg)) return false;
+    return true;
+  }
+
+  const filteredIssues = _issues.filter(filterFn);
+  const filteredInvest = _investigations.filter(filterFn);
+
+  renderEvents('tbody-issues', 'empty-issues', filteredIssues);
+  renderEvents('tbody-investigations', 'empty-investigations', filteredInvest);
+
+  const active = _activeTab === 'issues' ? filteredIssues : filteredInvest;
+  document.getElementById('filter-count').textContent =
+    active.length + ' event' + (active.length !== 1 ? 's' : '');
+}
+
+function renderEvents(tbodyId, emptyId, events) {
+  const tbody = document.getElementById(tbodyId);
+  const empty = document.getElementById(emptyId);
+  tbody.innerHTML = '';
+
+  if (!events.length) {
+    empty.classList.remove('d-none');
+    return;
+  }
+  empty.classList.add('d-none');
+
+  events.forEach(ev => {
+    const tr = document.createElement('tr');
+    tr.onclick = () => showDetail(ev);
+    const orgNames = (ev.affected_orgs || []).map(o => o.org_name || o.org_id).join(', ');
+    const sev = ev.severity || 'standard';
+    tr.innerHTML = `
+      <td><span class="service-tag">${esc(ev.service || '—')}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(ev.event_type_code || '')}">${esc(ev.event_type_code || '—')}</td>
+      <td><span class="region-tag">${esc(ev.region || 'global')}</span></td>
+      <td><span class="badge badge-${ev.status || 'open'}">${esc(ev.status || 'open')}</span></td>
+      <td><span class="badge badge-${sev}">${esc(sev)}</span></td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(orgNames)}">${esc(orgNames || '—')}</td>
+      <td>${ev.affected_account_count || 0}</td>
+      <td style="white-space:nowrap;">${fmtTime(ev.start_time)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Orgs ──────────────────────────────────────────────────────────────────
+function renderOrgs() {
+  const tbody = document.getElementById('tbody-orgs');
+  const empty = document.getElementById('empty-orgs');
+  tbody.innerHTML = '';
+
+  if (!_orgs.length) { empty.classList.remove('d-none'); return; }
+  empty.classList.add('d-none');
+
+  _orgs.forEach(o => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(o.org_name || '—')}</td>
+      <td><code style="color:#93c5fd">${esc(o.org_id)}</code></td>
+      <td>${o.issues?.open || 0}</td>
+      <td>${o.investigations?.open || 0}</td>
+      <td>${(o.issues?.total || 0) + (o.investigations?.total || 0)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Detail Panel ──────────────────────────────────────────────────────────
+function showDetail(ev) {
+  const panel = document.getElementById('detail-panel');
+  document.getElementById('detail-title').textContent =
+    `${ev.service || ''} — ${ev.event_type_code || ev.event_arn}`;
+
+  const orgsHtml = (ev.affected_orgs || []).map(o =>
+    `<span class="org-chip" title="${esc(o.org_id)}">${esc(o.org_name || o.org_id)} (${o.affected_accounts?.length || 0} accts)</span>`
+  ).join('');
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="row g-3">
+      <div class="col-md-6">
+        <table class="table table-sm mb-0" style="font-size:.83rem">
+          <tr><th style="color:#94a3b8;width:130px">ARN</th><td style="word-break:break-all"><code style="font-size:.75rem">${esc(ev.event_arn)}</code></td></tr>
+          <tr><th>Service</th><td><span class="service-tag">${esc(ev.service || '—')}</span></td></tr>
+          <tr><th>Type Code</th><td>${esc(ev.event_type_code || '—')}</td></tr>
+          <tr><th>Region</th><td><span class="region-tag">${esc(ev.region || 'global')}</span></td></tr>
+          <tr><th>Status</th><td><span class="badge badge-${ev.status || 'open'}">${esc(ev.status || 'open')}</span></td></tr>
+          <tr><th>Severity</th><td><span class="badge badge-${ev.severity || 'standard'}">${esc(ev.severity || 'standard')}</span></td></tr>
+          <tr><th>Category</th><td><span class="badge badge-${ev.category || 'issue'}">${esc(ev.category || 'issue')}</span></td></tr>
+        </table>
+      </div>
+      <div class="col-md-6">
+        <table class="table table-sm mb-0" style="font-size:.83rem">
+          <tr><th style="color:#94a3b8;width:130px">Start Time</th><td>${esc(ev.start_time || '—')}</td></tr>
+          <tr><th>Last Updated</th><td>${esc(ev.last_updated_time || '—')}</td></tr>
+          <tr><th>End Time</th><td>${esc(ev.end_time || 'Ongoing')}</td></tr>
+          <tr><th>Affected Accts</th><td>${ev.affected_account_count || 0}</td></tr>
+        </table>
+      </div>
+      <div class="col-12">
+        <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.4rem">AFFECTED ORGS</div>
+        ${orgsHtml || '<span style="color:#475569">—</span>'}
+      </div>
+    </div>
+  `;
+  panel.classList.remove('d-none');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function closeDetail() {
+  document.getElementById('detail-panel').classList.add('d-none');
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(tab, el) {
+  document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('d-none'));
+  document.getElementById('tab-' + tab).classList.remove('d-none');
+  document.getElementById('filter-bar').style.display = tab === 'orgs' ? 'none' : '';
+  _activeTab = tab;
+  if (tab !== 'orgs') applyFilters();
+  closeDetail();
+}
+
+// ── Bar chart (top services/regions) ──────────────────────────────────────
+function renderBar(containerId, data, labelKey, valueKey, color) {
+  const el = document.getElementById(containerId);
+  if (!data?.length) { el.innerHTML = '<span style="color:#475569;font-size:.8rem">No data</span>'; return; }
+  const max = Math.max(...data.map(d => d[valueKey]));
+  el.innerHTML = data.slice(0, 8).map(d => `
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span style="width:100px;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">${esc(d[labelKey])}</span>
+      <div style="flex:1;background:#0f1117;border-radius:4px;height:8px;overflow:hidden">
+        <div style="width:${Math.round(d[valueKey]/max*100)}%;background:${color};height:100%;border-radius:4px"></div>
+      </div>
+      <span style="font-size:.78rem;color:#94a3b8;width:24px;text-align:right">${d[valueKey]}</span>
+    </div>`).join('');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle:'short', timeStyle:'short' });
+  } catch { return iso; }
+}
+function showSpinner(show) {
+  let el = document.getElementById('spinner-overlay');
+  if (show && !el) {
+    el = document.createElement('div');
+    el.id = 'spinner-overlay';
+    el.className = 'spinner-overlay';
+    el.innerHTML = '<div class="spinner-border text-warning" style="width:3rem;height:3rem"></div>';
+    document.body.appendChild(el);
+  } else if (!show && el) {
+    el.remove();
+  }
+}
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `toast show align-items-center text-bg-${type} border-0 mb-2`;
+  el.innerHTML = `<div class="d-flex"><div class="toast-body">${esc(msg)}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest('.toast').remove()"></button></div>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+</script>
+</body>
+</html>

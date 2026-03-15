@@ -38,6 +38,17 @@ def handler(event: dict, context) -> dict:
     query = event.get("queryStringParameters") or {}
     multi_query = event.get("multiValueQueryStringParameters") or {}
 
+    if method == "OPTIONS":
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET,OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type,X-Api-Key,Authorization",
+            },
+            "body": "",
+        }
+
     if method != "GET":
         return _response(405, {"error": {"code": "METHOD_NOT_ALLOWED", "message": "Only GET is supported"}})
 

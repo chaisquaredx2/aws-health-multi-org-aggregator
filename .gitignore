@@ -2,10 +2,28 @@
 .build/
 
 # Python deps installed into Lambda dirs by deploy.sh
-lambda/collector/*.dist-info/
-lambda/collector/*.egg-info/
-lambda/api/*.dist-info/
-lambda/api/*.egg-info/
+lambda/*/*.dist-info/
+lambda/*/*.egg-info/
+lambda/*/bin/
+lambda/*/certifi/
+lambda/*/charset_normalizer/
+lambda/*/idna/
+lambda/*/requests/
+lambda/*/urllib3/
+lambda/*/dateutil/
+lambda/*/numpy/
+lambda/*/numpy-*/
+lambda/*/pandas/
+lambda/*/pandas-*/
+lambda/*/python_dateutil-*/
+lambda/*/pytz/
+lambda/*/pytz-*/
+lambda/*/six.py
+lambda/*/six-*/
+lambda/*/tzdata/
+lambda/*/tzdata-*/
+lambda/*/xlsxwriter/
+lambda/*/XlsxWriter-*/
 # (keep source .py files, exclude installed wheels)
 lambda/**/*.so
 lambda/**/__pycache__/
