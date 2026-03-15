@@ -108,6 +108,22 @@ resource "aws_vpc_endpoint" "s3" {
   tags = { Name = "${var.project_name}-s3-vpce" }
 }
 
+# ── Lambda (Interface) ────────────────────────────────────────────────────────
+# API Lambda invokes the exporter Lambda (POST /v1/export). Lambda service
+# endpoint is not a Gateway endpoint — requires an Interface endpoint for
+# VPC-attached functions with no internet egress.
+
+resource "aws_vpc_endpoint" "lambda" {
+  vpc_id              = local.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.lambda"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.private_subnet_ids
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+
+  tags = { Name = "${var.project_name}-lambda-vpce" }
+}
+
 # ── Security group shared by all Interface endpoints ──────────────────────────
 
 resource "aws_security_group" "vpc_endpoints" {

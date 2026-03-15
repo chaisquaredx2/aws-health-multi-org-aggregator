@@ -39,7 +39,7 @@ The spec is complete enough to reproduce the entire codebase. Ask:
 | §12 Data Model | `terraform/dynamodb.tf`, `docs/reference.md` |
 | §13 API Contract | `docs/reference.md` |
 | §14 Infrastructure | `terraform/*.tf` |
-| §15 Security | `terraform/iam.tf`, `terraform/waf.tf`, `terraform/kms.tf` |
+| §15 Security | `terraform/iam.tf`, `terraform/kms.tf` |
 | §16 Monitoring | `terraform/monitoring.tf` |
 | §17 Configuration | `terraform/variables.tf`, `terraform/terraform.tfvars.example` |
 | §18 Scripts | `scripts/*.sh` |
@@ -118,7 +118,7 @@ EventBridge (rate 15 min)
                ├── API Lambda ───────────┘
                │   (VPC) ▲
                │         └── Consumer API GW (REGIONAL)
-               │               WAF, IAM SigV4, IP allowlist
+               │               IAM SigV4, IP allowlist
                │               ◀── external consumers
                │
                └── Exporter Lambda (VPC, daily)
@@ -737,8 +737,6 @@ No longer used: `"alert#{event_arn}"` per-ARN dedup items (replaced by incident-
 
 **IP allowlist:** An API GW resource policy denies requests from IPs not in `consumer_api_allowed_cidrs` (set in `terraform.tfvars`).
 
-**WAF:** AWS managed rule groups + rate limiting applied to the consumer stage.
-
 **Response envelope** (list endpoints):
 ```json
 {
@@ -811,7 +809,7 @@ POST /v1/export
 Provider: `hashicorp/aws ~> 5.0`. Required Terraform: `>= 1.5`.
 
 ### File: `terraform/kms.tf`
-Single KMS CMK (`aws_kms_key.main`): used for DynamoDB tables (events, acct-metadata, collection-state), SSM SecureString, Lambda environment variables, S3 export bucket, WAF logs CloudWatch log group. Key rotation enabled.
+Single KMS CMK (`aws_kms_key.main`): used for DynamoDB tables (events, acct-metadata, collection-state), SSM SecureString, Lambda environment variables, S3 export bucket. Key rotation enabled.
 
 ### File: `terraform/dynamodb.tf`
 Three tables: `health-aggregator-events` (PK+SK, GSI1, GSI2, TTL, PITR, KMS), `health-aggregator-account-metadata` (PK only, TTL, KMS), `health-aggregator-collection-state` (PK only, KMS).
@@ -854,18 +852,9 @@ Seven endpoints in private subnets:
 | `logs` | Interface | Lambda → CloudWatch Logs |
 | `sns` | Interface | Collector → SNS alert publish |
 | `s3` | Gateway (free) | Exporter → S3 |
+| `lambda` | Interface | API Lambda → Exporter Lambda (on-demand export) |
 
 All Interface endpoints share one security group: HTTPS (443) ingress from private subnet CIDRs only.
-
-### File: `terraform/waf.tf`
-WAF WebACL (REGIONAL scope) on **consumer API GW only** (private health proxy API is protected by resource policy + IAM — WAF not applicable to private REST APIs).
-
-Rules:
-1. `RateLimit` — block if > 1000 requests per 5-minute window per IP
-2. `AWSManagedRulesCommonRuleSet` — SQLi, XSS, bad inputs (priority 2)
-3. `AWSManagedRulesKnownBadInputsRuleSet` — log4j etc. (priority 3)
-
-Logging: CloudWatch log group `aws-waf-logs-{project_name}-consumer-api` (name must start with `aws-waf-logs-`). Log filter: KEEP only BLOCK actions (DROP allowed traffic to reduce volume).
 
 ### File: `terraform/s3.tf`
 S3 bucket `{project_name}-excel-exports-{account_id}`. KMS SSE, versioning, lifecycle (expire after `export_retention_days`), public access blocked, TLS-only bucket policy.
@@ -893,7 +882,7 @@ CloudWatch Dashboard `{project_name}`: 6 widgets, 3 rows — (1) collection heal
 ## §15 Security
 
 ### Encryption
-- **At rest:** DynamoDB, SSM SecureString, Lambda env vars, S3, WAF logs — all encrypted with CMK `aws_kms_key.main`.
+- **At rest:** DynamoDB, SSM SecureString, Lambda env vars, S3 — all encrypted with CMK `aws_kms_key.main`.
 - **In transit:** TLS 1.2+ enforced on all AWS SDK calls. API GW enforces TLS 1.2+ (REGIONAL endpoint). S3 bucket policy denies non-TLS requests.
 
 ### Network
@@ -901,9 +890,6 @@ CloudWatch Dashboard `{project_name}`: 6 widgets, 3 rows — (1) collection heal
 - No internet egress — all AWS services reached via VPC endpoints.
 - Lambda security group: HTTPS egress only to VPC endpoint CIDRs.
 - Health Proxy API GW resource policy: invocations restricted to execute-api VPC endpoint only.
-
-### WAF
-Rate limit 1000 req/5min/IP. AWS managed common rule set + known bad inputs.
 
 ### IAM
 Least privilege — see §14 iam.tf. Cross-org roles scoped by `cross_org_role_name` pattern. External ID supported (`assume_role_external_id` in org registry).
@@ -1025,7 +1011,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | 2026-03-14 | Added exporter IAM role; collector gains SNS Publish | §14 iam |
 | 2026-03-14 | Added `terraform/s3.tf` — export bucket | §12, §14 |
 | 2026-03-14 | Added `scripts/register_org.sh` + `test_collection.sh` | §18 |
-| 2026-03-14 | WAF access log format field added to `access_log_settings` | §14 lambda |
+| 2026-03-15 | Removed WAF (redundant — covered by IP allowlist + IAM SigV4); added Lambda VPC endpoint for on-demand export; aligned CloudWatch alarm periods to 5-min collection cycle | §14, §15 |
 
 ---
 

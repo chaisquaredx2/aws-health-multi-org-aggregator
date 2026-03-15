@@ -12,8 +12,6 @@ This document covers the REST API contract and the underlying DynamoDB data mode
 
 **IP restriction**: Requests are also subject to an API Gateway resource policy. Only source IPs matching `consumer_api_allowed_cidrs` (set in `terraform.tfvars`) are permitted. Requests from unlisted IPs receive `403` before auth is checked.
 
-**WAF**: A WAF WebACL (AWS managed rules + rate limiting) is attached to the consumer API stage. Blocked requests receive `403`.
-
 **Content-Type**: `application/json`
 
 **Global response headers**:
@@ -61,7 +59,7 @@ When `next_token` is non-null, pass it as `?next_token=<value>` in the next requ
 | 400 | `INVALID_PARAMETER` | Unknown or invalid query param value |
 | 400 | `MISSING_PARAMETER` | Required param absent |
 | 404 | `NOT_FOUND` | Event ARN not found |
-| 429 | `RATE_LIMITED` | WAF rate limit hit |
+| 429 | `RATE_LIMITED` | Too many requests |
 | 500 | `INTERNAL_ERROR` | Lambda/DynamoDB error |
 
 ---

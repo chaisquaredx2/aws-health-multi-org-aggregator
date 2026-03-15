@@ -91,7 +91,6 @@ aws-health-multi-org-aggregator/
 │   ├── ssm_documents.tf            # SSM Automation docs + execution role
 │   ├── variables.tf
 │   ├── vpc_endpoints.tf            # execute-api, DynamoDB, SSM, STS, logs, SNS, S3
-│   ├── waf.tf                      # WAF WebACL on consumer API GW only
 │   └── terraform.tfvars.example
 ├── ssm/
 │   ├── HealthAggregator-RegisterOrg.yaml    # Add/update/remove org in SSM registry
@@ -325,6 +324,7 @@ All deployed in the configured private subnets (no internet egress required):
 | `logs` | Interface | All Lambdas → CloudWatch Logs |
 | `sns` | Interface | Collector → SNS alert publish |
 | `s3` | Gateway (free) | Exporter → S3 Excel upload |
+| `lambda` | Interface | API Lambda → Exporter Lambda (on-demand export) |
 
 ---
 
@@ -334,7 +334,7 @@ CloudWatch alarms (routed to `alarm_sns_topic_arn`):
 
 | Alarm | Threshold |
 |---|---|
-| Collector Lambda errors | > 0 over 2 × 15-min periods |
+| Collector Lambda errors | > 0 over 2 × 5-min periods |
 | Collector duration (p95) | > 80% of timeout over 3 periods |
 | Custom `CollectionErrors` metric | > 0 (any org failed) |
 | `EventsCollected` = 0 | ≤ 0 over 1 hour (breaching if collector didn't run) |

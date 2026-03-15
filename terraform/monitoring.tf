@@ -12,7 +12,7 @@ resource "aws_cloudwatch_metric_alarm" "collector_errors" {
   metric_name         = "Errors"
   dimensions          = { FunctionName = aws_lambda_function.collector.function_name }
   statistic           = "Sum"
-  period              = 900   # 15 min (one collection cycle)
+  period              = 300   # 5 min (one collection cycle)
   evaluation_periods  = 2
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
@@ -27,7 +27,7 @@ resource "aws_cloudwatch_metric_alarm" "collector_duration" {
   metric_name         = "Duration"
   dimensions          = { FunctionName = aws_lambda_function.collector.function_name }
   extended_statistic  = "p95"
-  period              = 900
+  period              = 300   # 5 min (one collection cycle)
   evaluation_periods  = 3
   threshold           = var.collector_timeout_seconds * 1000 * 0.8  # 80% of timeout in ms
   comparison_operator = "GreaterThanThreshold"
@@ -43,7 +43,7 @@ resource "aws_cloudwatch_metric_alarm" "collection_errors_custom" {
   metric_name         = "CollectionErrors"
   dimensions          = { OrgId = "all" }
   statistic           = "Sum"
-  period              = 900
+  period              = 300   # 5 min (one collection cycle)
   evaluation_periods  = 1
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
