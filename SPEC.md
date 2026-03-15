@@ -29,12 +29,12 @@ The spec is complete enough to reproduce the entire codebase. Ask:
 |---|---|
 | §3 Architecture | (reference only) |
 | §4 Org Registry | `lambda/collector/org_registry.py` |
-| §5 Health Proxy | `terraform/api_gateway_health_proxy.tf`, `lambda/collector/health_proxy_client.py` |
+| §5 Health Proxy | `terraform/api_gateway_health_proxy.tf`, `lambda/shared/health_proxy_client.py` |
 | §6 Collector Lambda | `lambda/collector/handler.py` |
 | §7 Event Classifier | `lambda/collector/event_classifier.py` |
 | §8 Alert Dispatcher | `lambda/collector/alert_dispatcher.py` |
 | §9 Account Cache | `lambda/collector/account_cache.py` |
-| §10 API Lambda | `lambda/api/handler.py`, `lambda/api/routes/*.py` |
+| §10 API Lambda | `lambda/api/handler.py`, `lambda/api/routes/*.py`, `lambda/api/pagination.py`, `lambda/api/response.py` |
 | §11 Exporter Lambda | `lambda/exporter/handler.py`, `lambda/exporter/excel_writer.py` |
 | §12 Data Model | `terraform/dynamodb.tf`, `docs/reference.md` |
 | §13 API Contract | `docs/reference.md` |
@@ -46,6 +46,8 @@ The spec is complete enough to reproduce the entire codebase. Ask:
 | §19 Decision Log | (reference only) |
 | §20 Changelog | (reference only) |
 | §21 Future Work | (reference only) |
+| §22 Shared Modules | `lambda/shared/health_proxy_client.py` |
+| §23 Testing | `tests/`, `requirements-test.txt`, `pytest.ini`, `run_test.sh` |
 
 ---
 
@@ -976,6 +978,94 @@ Manually trigger collector Lambda and stream CloudWatch Logs.
 Flags: `--function` (default `health-aggregator-collector`), `--region`, `--tail-mins` (default 5), `--sync` (RequestResponse vs Event invocation).
 
 After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metrics for the run window.
+
+| Alert HTML email via SES | Low | Add SES VPC endpoint; format rich HTML in alert_dispatcher; send alongside SNS |
+
+---
+
+## §22 Shared Modules
+
+**Directory:** `lambda/shared/`
+
+**Purpose:** Common code shared across multiple Lambda functions to avoid duplication.
+
+**Files:**
+
+### `lambda/shared/health_proxy_client.py`
+
+**Purpose:** SigV4-signed HTTP calls to the private Health Proxy API GW; handles pagination for all 4 methods. Shared between collector and API Lambdas.
+
+**Class:** `HealthProxyClient`
+
+**Constructor args:**
+- `api_base_url: str` — stage URL, e.g. `https://{id}.execute-api.us-east-1.amazonaws.com/prod`
+- `region: str` — always `"us-east-1"` (Health API constraint)
+
+**Signing:** `SigV4Auth(credentials, "execute-api", region)` from `botocore.auth`. Content-Type sent to API GW is `application/json`; API GW rewrites to `application/x-amz-json-1.1` for Health.
+
+**Retry:** Exponential backoff (1s base, doubles, max 4 attempts) on `ThrottlingError` (HTTP 429 or 400 + "ThrottlingException" in body).
+
+**Methods and pagination:**
+
+| Method | Pagination style | Returns |
+|---|---|---|
+| `describe_events_for_organization(categories, last_updated_from)` | `while True: … if not nextToken: break` | `list[dict]` (flat, all pages) |
+| `describe_affected_accounts_for_organization(event_arn)` | same loop | `list[str]` account IDs |
+| `describe_event_details_for_organization(event_arns, account_id=None)` | Chunks of 10 (API limit) | `dict` with `successfulSet`, `failedSet` |
+| `describe_affected_entities_for_organization(event_arn, account_id)` | same loop | `list[dict]` entities |
+
+**Constants:** `MAX_RESULTS = 100`, `MAX_RETRIES = 4`, `BASE_RETRY_DELAY_S = 1`
+
+---
+
+## §23 Testing
+
+**Directory:** `tests/`
+
+**Purpose:** Unit and integration tests for the Lambda functions. Uses pytest with moto for AWS service mocking.
+
+**Structure:**
+
+```
+tests/
+├── conftest.py                 # Pytest fixtures: mock DynamoDB, SSM, etc.
+├── pytest.ini                  # Pytest configuration
+├── requirements-test.txt       # Test dependencies: pytest, moto, boto3, pandas, etc.
+├── run_test.sh                 # Script to run all tests
+├── unit/
+│   ├── shared/
+│   │   └── test_health_proxy_client.py
+│   ├── collector/
+│   │   ├── test_account_cache.py
+│   │   ├── test_alert_dispatcher.py
+│   │   ├── test_collector_handler.py
+│   │   ├── test_event_classifier.py
+│   │   └── test_org_registry.py
+│   ├── api/
+│   │   ├── test_api_handler.py
+│   │   ├── test_pagination.py
+│   │   ├── test_response.py
+│   │   └── routes/
+│   │       ├── test_events.py
+│   │       ├── test_export.py
+│   │       ├── test_orgs.py
+│   │       └── test_summary.py
+│   └── exporter/
+│       ├── test_excel_writer.py
+│       └── test_exporter_handler.py
+└── integration/
+    └── INTEGRATION_TESTS.md    # Integration test documentation
+```
+
+**Running tests:**
+- All tests: `pytest` (from activated venv)
+- Specific file: `pytest tests/unit/shared/test_health_proxy_client.py`
+- With coverage: `pytest --cov=lambda`
+
+**Test setup:**
+- Virtual environment in `venv/` with `requirements-test.txt`
+- Mocks: DynamoDB (moto), SSM, S3, SNS, STS, CloudWatch
+- Fixtures in `conftest.py` load Lambda code for testing
 
 ---
 

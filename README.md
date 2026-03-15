@@ -58,20 +58,23 @@ aws-health-multi-org-aggregator/
 ├── frontend/
 │   └── index.html                  # Single-file dashboard (Bootstrap 5, SigV4 via Web Crypto API)
 ├── lambda/
+│   ├── shared/
+│   │   └── health_proxy_client.py  # Shared SigV4 client for Health API proxy
 │   ├── collector/
 │   │   ├── handler.py              # Entry point — fan-out per org, collect → DynamoDB
-│   │   ├── health_proxy_client.py  # SigV4-signed calls to Health Proxy API GW
 │   │   ├── event_classifier.py     # Operational flag + severity (standard/critical)
 │   │   ├── alert_dispatcher.py     # SNS publish for new/changed operational events
 │   │   ├── account_cache.py        # DynamoDB-backed 24h account metadata cache
 │   │   └── org_registry.py         # SSM SecureString org config loader
 │   ├── api/
 │   │   ├── handler.py              # Routes API GW proxy events + OPTIONS preflight
-│   │   ├── health_proxy_client.py  # Shared copy (synced by deploy.sh)
+│   │   ├── pagination.py           # Pagination utilities for API responses
+│   │   ├── response.py             # Response formatting utilities
 │   │   └── routes/
 │   │       ├── events.py           # GET /v1/events, GET /v1/events/{arn}/details
 │   │       ├── summary.py          # GET /v1/summary
-│   │       └── orgs.py             # GET /v1/orgs
+│   │       ├── orgs.py             # GET /v1/orgs
+│   │       └── export.py           # POST /v1/export (on-demand Excel export)
 │   └── exporter/
 │       ├── handler.py              # Daily Lambda: DynamoDB → Excel → S3
 │       └── excel_writer.py         # Workbook builder (pivots, delta, charts)
@@ -90,19 +93,67 @@ aws-health-multi-org-aggregator/
 │   ├── s3.tf                       # KMS-encrypted export bucket
 │   ├── ssm_documents.tf            # SSM Automation docs + execution role
 │   ├── variables.tf
-│   ├── vpc_endpoints.tf            # execute-api, DynamoDB, SSM, STS, logs, SNS, S3
+│   ├── vpc_endpoints.tf            # execute-api, DynamoDB, SSM, STS, logs, SNS, S3, lambda
 │   └── terraform.tfvars.example
-├── ssm/
-│   ├── HealthAggregator-RegisterOrg.yaml    # Add/update/remove org in SSM registry
-│   └── HealthAggregator-TestCollection.yaml # Trigger collector + fetch metrics/logs
+├── tests/
+│   ├── conftest.py                 # Pytest fixtures for AWS mocking
+│   ├── pytest.ini                  # Pytest configuration
+│   ├── requirements-test.txt       # Test dependencies
+│   ├── run_test.sh                 # Script to run all tests
+│   ├── unit/                       # Unit tests for each Lambda
+│   └── integration/                # Integration test documentation
+├── scripts/
+│   ├── deploy.sh                   # Build and deploy via Terraform
+│   ├── register_org.sh             # Manage org registry in SSM
+│   └── test_collection.sh          # Manually trigger collector Lambda
 ├── docs/
 │   └── reference.md                # API contract + DynamoDB data model reference
-├── scripts/
+├── .vscode/
+│   └── settings.json               # VS Code workspace settings
+├── run_test.sh                     # Convenience script to run tests
+├── requirements-test.txt           # Test dependencies
+├── pytest.ini                      # Pytest configuration
+└── SPEC.md                         # Single source of truth for the system
+```
 │   ├── deploy.sh                   # pip install + terraform plan/apply
 │   ├── register_org.sh             # CLI wrapper for RegisterOrg SSM document
 │   └── test_collection.sh          # CLI wrapper for TestCollection SSM document
 └── SPEC.md                         # Full system specification (source of truth for code generation)
 ```
+
+---
+
+## Testing
+
+The project includes comprehensive unit tests using pytest and moto for AWS service mocking.
+
+### Setup
+
+1. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+2. Install test dependencies:
+   ```bash
+   pip install -r requirements-test.txt
+   ```
+
+### Running Tests
+
+- Run all tests: `pytest`
+- Run specific test file: `pytest tests/unit/shared/test_health_proxy_client.py`
+- Run with coverage: `pytest --cov=lambda`
+- Run the convenience script: `./run_test.sh` (runs all tests)
+
+### Test Structure
+
+- **Unit tests**: Test individual functions and classes with mocked AWS services
+- **Integration tests**: End-to-end tests (documentation in `tests/integration/`)
+- **Fixtures**: Shared test setup in `conftest.py` (mocks DynamoDB, SSM, S3, etc.)
+
+Tests use moto to mock AWS services, ensuring they run without real AWS resources.
 
 ---
 
