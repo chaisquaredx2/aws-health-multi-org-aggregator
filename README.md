@@ -97,13 +97,12 @@ aws-health-multi-org-aggregator/
 │   ├── HealthAggregator-RegisterOrg.yaml    # Add/update/remove org in SSM registry
 │   └── HealthAggregator-TestCollection.yaml # Trigger collector + fetch metrics/logs
 ├── docs/
-│   ├── api-contract.md
-│   └── data-model.md
+│   └── reference.md                # API contract + DynamoDB data model reference
 ├── scripts/
 │   ├── deploy.sh                   # pip install + terraform plan/apply
 │   ├── register_org.sh             # CLI wrapper for RegisterOrg SSM document
 │   └── test_collection.sh          # CLI wrapper for TestCollection SSM document
-└── SPEC.md                         # Full system specification
+└── SPEC.md                         # Full system specification (source of truth for code generation)
 ```
 
 ---

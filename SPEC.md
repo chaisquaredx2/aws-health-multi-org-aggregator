@@ -36,8 +36,8 @@ The spec is complete enough to reproduce the entire codebase. Ask:
 | §9 Account Cache | `lambda/collector/account_cache.py` |
 | §10 API Lambda | `lambda/api/handler.py`, `lambda/api/routes/*.py` |
 | §11 Exporter Lambda | `lambda/exporter/handler.py`, `lambda/exporter/excel_writer.py` |
-| §12 Data Model | `terraform/dynamodb.tf`, `docs/data-model.md` |
-| §13 API Contract | `docs/api-contract.md` |
+| §12 Data Model | `terraform/dynamodb.tf`, `docs/reference.md` |
+| §13 API Contract | `docs/reference.md` |
 | §14 Infrastructure | `terraform/*.tf` |
 | §15 Security | `terraform/iam.tf`, `terraform/waf.tf`, `terraform/kms.tf` |
 | §16 Monitoring | `terraform/monitoring.tf` |
