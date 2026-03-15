@@ -115,3 +115,47 @@ variable "alarm_sns_topic_arn" {
   type        = string
   default     = ""
 }
+
+variable "health_alert_sns_topic_arn" {
+  description = "SNS topic ARN for health event alerts (new/changed operational events). Can be the same as alarm_sns_topic_arn or a dedicated topic with PagerDuty/Slack subscriptions. Leave empty to disable health event alerting."
+  type        = string
+  default     = ""
+}
+
+variable "alerts_enabled" {
+  description = "Enable proactive health event alerts via SNS after each collection cycle."
+  type        = bool
+  default     = true
+}
+
+# ── Excel export ───────────────────────────────────────────────────────────────
+
+variable "excel_export_enabled" {
+  description = "Deploy the Excel exporter Lambda and its daily EventBridge schedule."
+  type        = bool
+  default     = true
+}
+
+variable "excel_export_schedule" {
+  description = "EventBridge schedule expression for the daily Excel export."
+  type        = string
+  default     = "rate(1 day)"
+}
+
+variable "export_retention_days" {
+  description = "Days to keep Excel reports in S3 before expiry."
+  type        = number
+  default     = 90
+}
+
+variable "exporter_timeout_seconds" {
+  description = "Exporter Lambda timeout. Increase for large event sets (pandas + Excel write)."
+  type        = number
+  default     = 300
+}
+
+variable "exporter_memory_mb" {
+  description = "Exporter Lambda memory. pandas + xlsxwriter need at least 512 MB."
+  type        = number
+  default     = 1024
+}

@@ -1,5 +1,12 @@
 # ── Lambda packages ───────────────────────────────────────────────────────────
 
+data "archive_file" "exporter" {
+  count       = var.excel_export_enabled ? 1 : 0
+  type        = "zip"
+  source_dir  = "${path.module}/../lambda/exporter"
+  output_path = "${path.module}/../.build/exporter.zip"
+}
+
 data "archive_file" "collector" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda/collector"
@@ -203,11 +210,67 @@ resource "aws_api_gateway_stage" "consumer" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.consumer_apigw.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      ip             = "$context.identity.sourceIp"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      responseLength = "$context.responseLength"
+      integrationLatency = "$context.integrationLatency"
+    })
   }
 }
 
 resource "aws_cloudwatch_log_group" "consumer_apigw" {
   name              = "/aws/apigateway/${var.project_name}-consumer"
+  retention_in_days = var.log_retention_days
+  kms_key_id        = aws_kms_key.main.arn
+}
+
+# ── Exporter Lambda (daily Excel report → S3) ─────────────────────────────────
+
+resource "aws_lambda_function" "exporter" {
+  count         = var.excel_export_enabled ? 1 : 0
+  function_name = "${var.project_name}-exporter"
+  description   = "Generates daily Excel health report (pivots, delta) and uploads to S3"
+  role          = aws_iam_role.exporter[0].arn
+  handler       = "handler.handler"
+  runtime       = var.lambda_runtime
+  timeout       = var.exporter_timeout_seconds
+  memory_size   = var.exporter_memory_mb
+  filename      = data.archive_file.exporter[0].output_path
+  source_code_hash = data.archive_file.exporter[0].output_base64sha256
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  environment {
+    variables = {
+      TABLE_NAME             = aws_dynamodb_table.events.name
+      EXPORT_BUCKET          = aws_s3_bucket.exports.id
+      COLLECTION_WINDOW_DAYS = tostring(var.collection_window_days)
+      LOG_LEVEL              = "INFO"
+    }
+  }
+
+  kms_key_arn = aws_kms_key.main.arn
+
+  tracing_config { mode = "Active" }
+
+  depends_on = [
+    aws_iam_role_policy.exporter,
+    aws_cloudwatch_log_group.exporter,
+  ]
+
+  tags = { Name = "${var.project_name}-exporter" }
+}
+
+resource "aws_cloudwatch_log_group" "exporter" {
+  count             = var.excel_export_enabled ? 1 : 0
+  name              = "/aws/lambda/${var.project_name}-exporter"
   retention_in_days = var.log_retention_days
   kms_key_id        = aws_kms_key.main.arn
 }

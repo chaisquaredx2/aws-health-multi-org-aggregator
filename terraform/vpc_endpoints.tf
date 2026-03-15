@@ -79,6 +79,35 @@ resource "aws_vpc_endpoint" "logs" {
   tags = { Name = "${var.project_name}-logs-vpce" }
 }
 
+# ── SNS (Interface) ───────────────────────────────────────────────────────────
+# Collector Lambda publishes health event alerts to SNS. SNS then delivers
+# from AWS-managed network to subscribers (PagerDuty HTTPS, email, Slack, etc.)
+# without requiring Lambda to reach the internet directly.
+
+resource "aws_vpc_endpoint" "sns" {
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.sns"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.private_subnet_ids
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+
+  tags = { Name = "${var.project_name}-sns-vpce" }
+}
+
+# ── S3 (Gateway — free) ───────────────────────────────────────────────────────
+# Exporter Lambda writes Excel reports to S3. Gateway endpoint is free and
+# routes S3 traffic through the AWS backbone (no internet egress needed).
+
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = var.vpc_id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = var.private_route_table_ids
+
+  tags = { Name = "${var.project_name}-s3-vpce" }
+}
+
 # ── Security group shared by all Interface endpoints ──────────────────────────
 
 resource "aws_security_group" "vpc_endpoints" {

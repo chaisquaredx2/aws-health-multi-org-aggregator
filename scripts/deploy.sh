@@ -19,6 +19,10 @@ echo "==> Syncing shared health_proxy_client to api package..."
 cp "$ROOT/lambda/collector/health_proxy_client.py" \
    "$ROOT/lambda/api/health_proxy_client.py"
 
+echo "==> Installing exporter dependencies..."
+pip install -r "$ROOT/lambda/exporter/requirements.txt" \
+    -t "$ROOT/lambda/exporter/" --quiet
+
 echo "==> Terraform init..."
 cd "$ROOT/terraform"
 terraform init
