@@ -183,11 +183,12 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 8
         height = 6
         properties = {
-          title  = "Events Collected per Run"
-          view   = "timeSeries"
-          period = 900
+          title   = "Events Collected per Run"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 900
           metrics = [["HealthAggregator", "EventsCollected", "OrgId", "all"]]
-          stat   = "Sum"
+          stat    = "Sum"
         }
       },
       {
@@ -197,12 +198,12 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 8
         height = 6
         properties = {
-          title  = "Collection Errors (per org)"
-          view   = "timeSeries"
-          period = 900
+          title   = "Collection Errors (per org)"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 900
           metrics = [["HealthAggregator", "CollectionErrors", "OrgId", "all"]]
-          stat   = "Sum"
-          annotations = { horizontal = [{ value = 0, label = "Error threshold" }] }
+          stat    = "Sum"
         }
       },
       {
@@ -212,11 +213,12 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 8
         height = 6
         properties = {
-          title  = "Org Collection Duration (p95 ms)"
-          view   = "timeSeries"
-          period = 900
+          title   = "Org Collection Duration (p95 ms)"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 900
           metrics = [["HealthAggregator", "OrgCollectionDurationMs", "OrgId", "all"]]
-          stat   = "p95"
+          stat    = "p95"
         }
       },
       # Row 2: Health proxy
@@ -227,9 +229,10 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 12
         height = 6
         properties = {
-          title  = "Health Proxy API GW — 4xx / 5xx"
-          view   = "timeSeries"
-          period = 300
+          title   = "Health Proxy API GW - 4xx / 5xx"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 300
           metrics = [
             ["AWS/ApiGateway", "4XXError", "ApiName", aws_api_gateway_rest_api.health_proxy.name, "Stage", aws_api_gateway_stage.health_proxy.stage_name, { stat = "Sum", label = "4xx" }],
             ["AWS/ApiGateway", "5XXError", "ApiName", aws_api_gateway_rest_api.health_proxy.name, "Stage", aws_api_gateway_stage.health_proxy.stage_name, { stat = "Sum", label = "5xx" }],
@@ -243,9 +246,10 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 12
         height = 6
         properties = {
-          title  = "API Lambda — Errors & Duration"
-          view   = "timeSeries"
-          period = 60
+          title   = "API Lambda - Errors and Duration"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 60
           metrics = [
             ["AWS/Lambda", "Errors",   "FunctionName", aws_lambda_function.api.function_name, { stat = "Sum",  yAxis = "left",  label = "Errors" }],
             ["AWS/Lambda", "Duration", "FunctionName", aws_lambda_function.api.function_name, { stat = "p99",  yAxis = "right", label = "p99 ms" }],
@@ -260,9 +264,10 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 12
         height = 6
         properties = {
-          title  = "DynamoDB — Consumed Write/Read Capacity"
-          view   = "timeSeries"
-          period = 300
+          title   = "DynamoDB - Consumed Write/Read Capacity"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 300
           metrics = [
             ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", aws_dynamodb_table.events.name, { stat = "Sum", label = "Write CU" }],
             ["AWS/DynamoDB", "ConsumedReadCapacityUnits",  "TableName", aws_dynamodb_table.events.name, { stat = "Sum", label = "Read CU" }],
@@ -276,9 +281,10 @@ resource "aws_cloudwatch_dashboard" "main" {
         width = 12
         height = 6
         properties = {
-          title  = "DynamoDB — Throttled Requests"
-          view   = "timeSeries"
-          period = 300
+          title   = "DynamoDB - Throttled Requests"
+          view    = "timeSeries"
+          region  = var.aws_region
+          period  = 300
           metrics = [["AWS/DynamoDB", "ThrottledRequests", "TableName", aws_dynamodb_table.events.name, { stat = "Sum" }]]
         }
       },

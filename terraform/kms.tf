@@ -32,6 +32,28 @@ resource "aws_kms_key" "main" {
         Action    = ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
         Resource  = "*"
       },
+      {
+        # CloudWatch Logs needs GenerateDataKey + Decrypt to encrypt log groups
+        Sid    = "CloudWatchLogs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      },
+      {
+        Sid       = "SNS"
+        Effect    = "Allow"
+        Principal = { Service = "sns.amazonaws.com" }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource  = "*"
+      },
     ]
   })
 }

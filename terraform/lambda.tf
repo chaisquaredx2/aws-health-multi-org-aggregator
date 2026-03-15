@@ -23,7 +23,7 @@ data "archive_file" "api" {
 
 resource "aws_security_group" "lambda" {
   name        = "${var.project_name}-lambda-sg"
-  description = "Lambda functions — HTTPS egress to VPC endpoints only"
+  description = "Lambda functions - HTTPS egress to VPC endpoints only"
   vpc_id      = local.vpc_id
 
   egress {
@@ -142,7 +142,7 @@ resource "aws_cloudwatch_log_group" "api" {
 
 resource "aws_api_gateway_rest_api" "consumer" {
   name        = "${var.project_name}-api"
-  description = "Health aggregator consumer API — events, summary, orgs"
+  description = "Health aggregator consumer API - events, summary, orgs"
 
   endpoint_configuration {
     types = ["REGIONAL"]
