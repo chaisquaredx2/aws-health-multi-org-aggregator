@@ -1,0 +1,153 @@
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# SSM Automation Document: HealthAggregator-RegisterOrg
+#
+# Purpose:
+#   Add, update, or remove an org entry in the Health Aggregator SSM registry
+#   (/health-aggregator/orgs). Equivalent to scripts/register_org.sh.
+#
+# How to create in the AWS Console:
+#   1. Systems Manager → Documents → Create document → Automation
+#   2. Paste this entire file into the "Content" editor (select YAML)
+#   3. Click "Create document"
+#
+# How to run:
+#   Systems Manager → Automation → Execute automation
+#   Search for "HealthAggregator-RegisterOrg" → fill in parameters → Execute
+# ──────────────────────────────────────────────────────────────────────────────
+schemaVersion: '0.3'
+description: >
+  Add, update, or remove an org from the Health Aggregator SSM registry.
+  Reads the current /health-aggregator/orgs SecureString parameter, upserts or
+  deletes the entry for the given OrgId, and writes it back.
+
+parameters:
+  Action:
+    type: String
+    description: "AddOrUpdate — register or update the org. Delete — remove it."
+    allowedValues:
+      - AddOrUpdate
+      - Delete
+    default: AddOrUpdate
+
+  OrgId:
+    type: String
+    description: "AWS Organizations ID, e.g. o-abc123def45 (required)"
+
+  OrgName:
+    type: String
+    description: "Human-readable display name for the org (required for AddOrUpdate)"
+    default: ""
+
+  AccountId:
+    type: String
+    description: "Delegated Health admin account ID for this org (required for AddOrUpdate)"
+    default: ""
+
+  RoleName:
+    type: String
+    description: "IAM role name to assume in the delegated admin account"
+    default: HealthAggregatorReadRole
+
+  ParamPath:
+    type: String
+    description: "SSM parameter path that holds the org registry JSON array"
+    default: /health-aggregator/orgs
+
+mainSteps:
+  - name: RegisterOrg
+    action: aws:executeScript
+    description: Upsert or delete the org entry in the SSM registry
+    timeoutSeconds: 60
+    inputs:
+      Runtime: python3.11
+      Handler: script_handler
+      InputPayload:
+        Action: "{{ Action }}"
+        OrgId: "{{ OrgId }}"
+        OrgName: "{{ OrgName }}"
+        AccountId: "{{ AccountId }}"
+        RoleName: "{{ RoleName }}"
+        ParamPath: "{{ ParamPath }}"
+      Script: |
+        import json
+        import boto3
+
+        def script_handler(events, context):
+            ssm = boto3.client('ssm')
+            action     = events['Action']
+            org_id     = events['OrgId']
+            param_path = events['ParamPath']
+
+            # ── Fetch current registry ────────────────────────────────────────
+            try:
+                resp = ssm.get_parameter(Name=param_path, WithDecryption=True)
+                orgs = json.loads(resp['Parameter']['Value'])
+            except ssm.exceptions.ParameterNotFound:
+                orgs = []
+            except Exception as e:
+                raise RuntimeError(f"Failed to read SSM parameter '{param_path}': {e}")
+
+            # ── Delete path ───────────────────────────────────────────────────
+            if action == 'Delete':
+                before = len(orgs)
+                orgs = [o for o in orgs if o.get('org_id') != org_id]
+                if len(orgs) == before:
+                    return {
+                        'status': 'NOT_FOUND',
+                        'message': f"org_id '{org_id}' was not found in the registry — nothing changed.",
+                        'registry': orgs,
+                    }
+                ssm.put_parameter(
+                    Name=param_path,
+                    Value=json.dumps(orgs, indent=2),
+                    Type='SecureString',
+                    Overwrite=True,
+                )
+                remaining = [f"{o['org_id']} ({o.get('name','')})" for o in orgs]
+                return {
+                    'status': 'DELETED',
+                    'message': f"Removed org_id '{org_id}'. Remaining: {remaining}",
+                    'registry': orgs,
+                }
+
+            # ── Add / Update path ─────────────────────────────────────────────
+            org_name   = events.get('OrgName', '').strip()
+            account_id = events.get('AccountId', '').strip()
+            role_name  = events.get('RoleName', 'HealthAggregatorReadRole').strip()
+
+            if not org_name:
+                raise ValueError("OrgName is required when Action=AddOrUpdate")
+            if not account_id:
+                raise ValueError("AccountId is required when Action=AddOrUpdate")
+
+            new_entry = {
+                'org_id':     org_id,
+                'name':       org_name,
+                'account_id': account_id,
+                'role_name':  role_name,
+            }
+            # Upsert: remove existing entry with same org_id, append updated one
+            orgs = [o for o in orgs if o.get('org_id') != org_id]
+            orgs.append(new_entry)
+
+            ssm.put_parameter(
+                Name=param_path,
+                Value=json.dumps(orgs, indent=2),
+                Type='SecureString',
+                Overwrite=True,
+            )
+            all_orgs = [f"{o['org_id']} ({o.get('name','')})" for o in orgs]
+            return {
+                'status': 'OK',
+                'message': f"Registered org_id '{org_id}' ({org_name}). All orgs: {all_orgs}",
+                'registry': orgs,
+            }
+
+    outputs:
+      - Name: status
+        Selector: $.Payload.status
+        Type: String
+      - Name: message
+        Selector: $.Payload.message
+        Type: String

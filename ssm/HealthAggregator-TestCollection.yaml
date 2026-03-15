@@ -1,0 +1,189 @@
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# SSM Automation Document: HealthAggregator-TestCollection
+#
+# Purpose:
+#   Trigger the collector Lambda, collect its CloudWatch log output, and
+#   return EventsCollected / CollectionErrors metrics.
+#   Equivalent to scripts/test_collection.sh.
+#
+# How to create in the AWS Console:
+#   1. Systems Manager → Documents → Create document → Automation
+#   2. Paste this entire file into the "Content" editor (select YAML)
+#   3. Click "Create document"
+#
+# How to run:
+#   Systems Manager → Automation → Execute automation
+#   Search for "HealthAggregator-TestCollection" → fill in parameters → Execute
+#
+# Notes:
+#   - The SSM Automation execution role needs lambda:InvokeFunction,
+#     logs:FilterLogEvents, and cloudwatch:GetMetricStatistics permissions.
+#   - Log output is returned in the "logLines" output field.
+#   - Total execution time = ~(TailSeconds + 30s overhead).
+# ──────────────────────────────────────────────────────────────────────────────
+schemaVersion: '0.3'
+description: >
+  Invoke the Health Aggregator collector Lambda, collect its CloudWatch Logs
+  output, and surface EventsCollected / CollectionErrors CloudWatch metrics.
+
+parameters:
+  FunctionName:
+    type: String
+    description: "Lambda function name or ARN"
+    default: health-aggregator-collector
+
+  InvocationType:
+    type: String
+    description: >
+      RequestResponse — wait for Lambda to complete and capture tail logs inline.
+      Event           — fire-and-forget; logs are polled from CloudWatch.
+    allowedValues:
+      - RequestResponse
+      - Event
+    default: RequestResponse
+
+  TailSeconds:
+    type: Integer
+    description: >
+      How many seconds to poll CloudWatch Logs after invocation (ignored for
+      RequestResponse — logs are captured from the invocation response directly).
+    default: 120
+
+mainSteps:
+  - name: InvokeAndCollectLogs
+    action: aws:executeScript
+    description: >
+      Invoke the collector Lambda, tail its CloudWatch Logs, and return
+      EventsCollected / CollectionErrors metrics.
+    timeoutSeconds: 900
+    inputs:
+      Runtime: python3.11
+      Handler: script_handler
+      InputPayload:
+        FunctionName: "{{ FunctionName }}"
+        InvocationType: "{{ InvocationType }}"
+        TailSeconds: "{{ TailSeconds }}"
+      Script: |
+        import base64
+        import json
+        import time
+        from datetime import datetime, timezone, timedelta
+
+        import boto3
+
+        def script_handler(events, context):
+            lambda_client = boto3.client('lambda')
+            logs_client   = boto3.client('logs')
+            cw_client     = boto3.client('cloudwatch')
+
+            function_name    = events['FunctionName']
+            invocation_type  = events['InvocationType']
+            tail_seconds     = int(events['TailSeconds'])
+
+            # Derive log group — strip ARN if needed
+            if function_name.startswith('arn:'):
+                short_name = function_name.split(':')[6]
+            else:
+                short_name = function_name
+            log_group = f'/aws/lambda/{short_name}'
+
+            payload = json.dumps({
+                'source': 'ssm-automation',
+                'detail-type': 'Scheduled Event',
+            }).encode()
+
+            start_time = datetime.now(timezone.utc)
+            start_ms   = int(start_time.timestamp() * 1000)
+
+            # ── Invoke Lambda ─────────────────────────────────────────────────
+            invoke_kwargs = {
+                'FunctionName':   function_name,
+                'InvocationType': invocation_type,
+                'Payload':        payload,
+            }
+            if invocation_type == 'RequestResponse':
+                invoke_kwargs['LogType'] = 'Tail'
+
+            invoke_resp  = lambda_client.invoke(**invoke_kwargs)
+            status_code  = invoke_resp['StatusCode']
+            invoke_result = {'statusCode': status_code, 'invocationType': invocation_type}
+
+            inline_logs = []
+            if invocation_type == 'RequestResponse':
+                # Decode tail logs from invocation response (last 4 KB)
+                raw_log = invoke_resp.get('LogResult', '')
+                if raw_log:
+                    decoded = base64.b64decode(raw_log).decode('utf-8', errors='replace')
+                    inline_logs = [l for l in decoded.splitlines() if l.strip()]
+
+                resp_payload = json.loads(invoke_resp['Payload'].read())
+                invoke_result['responsePayload'] = resp_payload
+
+            # ── Poll CloudWatch Logs (async path or supplement) ───────────────
+            log_lines     = list(inline_logs)
+            seen_event_ids = set()
+
+            if invocation_type == 'Event':
+                end_time = start_time + timedelta(seconds=tail_seconds)
+                while datetime.now(timezone.utc) < end_time:
+                    try:
+                        resp = logs_client.filter_log_events(
+                            logGroupName=log_group,
+                            startTime=start_ms,
+                            limit=200,
+                        )
+                        for ev in resp.get('events', []):
+                            eid = ev['eventId']
+                            if eid not in seen_event_ids:
+                                seen_event_ids.add(eid)
+                                log_lines.append(ev['message'].rstrip())
+                    except Exception:
+                        pass
+                    time.sleep(10)
+
+            # ── Fetch CloudWatch metrics ──────────────────────────────────────
+            now          = datetime.now(timezone.utc)
+            window_start = start_time - timedelta(minutes=2)   # small buffer before invoke
+            period       = max(tail_seconds + 180, 300)
+
+            metrics = {}
+            for metric_name in ('EventsCollected', 'CollectionErrors'):
+                try:
+                    resp = cw_client.get_metric_statistics(
+                        Namespace='HealthAggregator',
+                        MetricName=metric_name,
+                        Dimensions=[{'Name': 'OrgId', 'Value': 'all'}],
+                        StartTime=window_start,
+                        EndTime=now,
+                        Period=period,
+                        Statistics=['Sum'],
+                    )
+                    dps = resp.get('Datapoints', [])
+                    metrics[metric_name] = dps[0]['Sum'] if dps else 0
+                except Exception as e:
+                    metrics[metric_name] = f'error: {e}'
+
+            return {
+                'invocation': invoke_result,
+                'logLines':   log_lines[-300:],   # cap at 300 lines
+                'metrics':    metrics,
+                'summary': (
+                    f"EventsCollected={metrics.get('EventsCollected', 'N/A')}  "
+                    f"CollectionErrors={metrics.get('CollectionErrors', 'N/A')}"
+                ),
+            }
+
+    outputs:
+      - Name: summary
+        Selector: $.Payload.summary
+        Type: String
+      - Name: metrics
+        Selector: $.Payload.metrics
+        Type: StringMap
+      - Name: logLines
+        Selector: $.Payload.logLines
+        Type: StringList
+      - Name: invocation
+        Selector: $.Payload.invocation
+        Type: StringMap
