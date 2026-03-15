@@ -2,17 +2,18 @@
 
 **Base URL**: `https://{api-id}.execute-api.{region}.amazonaws.com/v1`
 
-**Auth**: Two modes (both supported simultaneously):
-- **IAM SigV4** — default for service-to-service consumers. API GW method auth = `AWS_IAM`. Callers need `execute-api:Invoke` on the resource ARN.
-- **API key** — opt-in for lightweight/external consumers. Pass `x-api-key` header. Issued via API GW Usage Plan. Rate-limited to the same WAF rules.
+**Auth**: AWS IAM SigV4 (`authorization = AWS_IAM`). Callers must sign requests with valid AWS credentials that have `execute-api:Invoke` on the resource ARN. The managed IAM policy `health-aggregator-dashboard-consumer` grants exactly this permission — attach it to any user or role that needs dashboard access.
+
+**IP restriction**: Requests are also subject to an API Gateway resource policy. Only source IPs matching `consumer_api_allowed_cidrs` (set in `terraform.tfvars`) are permitted. Requests from unlisted IPs receive `403` before auth is checked.
+
+**WAF**: A WAF WebACL (AWS managed rules + rate limiting) is attached to the consumer API stage. Blocked requests receive `403`.
 
 **Content-Type**: `application/json`
 
 **Global response headers**:
 ```
 Content-Type: application/json
-X-Request-Id: {uuid}
-X-Collection-Age: {seconds since last successful collection}
+Access-Control-Allow-Origin: *
 ```
 
 ---

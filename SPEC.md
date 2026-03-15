@@ -118,7 +118,7 @@ EventBridge (rate 15 min)
                ├── API Lambda ───────────┘
                │   (VPC) ▲
                │         └── Consumer API GW (REGIONAL)
-               │               WAF, IAM SigV4 / API key
+               │               WAF, IAM SigV4, IP allowlist
                │               ◀── external consumers
                │
                └── Exporter Lambda (VPC, daily)
@@ -694,7 +694,11 @@ ExclusiveStartKey = decoded(next_token) if next_token else absent
 
 **Base URL:** `https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/v1`
 
-**Auth:** `AWS_IAM` (SigV4, default) or `x-api-key` header (opt-in via Usage Plan).
+**Auth:** `AWS_IAM` (SigV4). All methods require a valid AWS signature. Callers must have `execute-api:Invoke` on the API ARN — attach the `health-aggregator-dashboard-consumer` managed IAM policy.
+
+**IP allowlist:** An API GW resource policy denies requests from IPs not in `consumer_api_allowed_cidrs` (set in `terraform.tfvars`).
+
+**WAF:** AWS managed rule groups + rate limiting applied to the consumer stage.
 
 **Response envelope** (list endpoints):
 ```json
@@ -951,7 +955,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | 1 | Deduplicate cross-org events at storage or API layer? | API layer — store per-org, merge by ARN in response | Preserves per-org affected account data; auditability |
 | 2 | Collection frequency? | 15 minutes | Investigations can escalate quickly; cost delta negligible |
 | 3 | Pagination token format? | Base64-encoded DynamoDB `LastEvaluatedKey` as `next_token` | Consistent with AWS SDK conventions |
-| 4 | API auth? | IAM SigV4 (default) + API key (opt-in via Usage Plan) | No Cognito — no user-facing frontend in v1 |
+| 4 | API auth? | IAM SigV4 only + IP allowlist resource policy | API key auth removed — browser dashboard uses Web Crypto API for SigV4 signing |
 | 5 | Include closed investigations in 7-day window? | Yes | Useful for post-incident review; TTL handles expiry |
 | 6 | Account metadata caching? | DynamoDB cache, 24h TTL | 200 accounts × 96 runs/day = 19,200 API calls without cache |
 | 7 | `window_days` fixed or API param? | API query param, default 7, max 7 | Narrower windows for fresh-data-only views |

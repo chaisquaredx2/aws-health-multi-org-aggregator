@@ -55,6 +55,8 @@ AWS Health has no VPC Interface Endpoint. The private API Gateway with an AWS Se
 
 ```
 aws-health-multi-org-aggregator/
+├── frontend/
+│   └── index.html                  # Single-file dashboard (Bootstrap 5, SigV4 via Web Crypto API)
 ├── lambda/
 │   ├── collector/
 │   │   ├── handler.py              # Entry point — fan-out per org, collect → DynamoDB
@@ -64,7 +66,7 @@ aws-health-multi-org-aggregator/
 │   │   ├── account_cache.py        # DynamoDB-backed 24h account metadata cache
 │   │   └── org_registry.py         # SSM SecureString org config loader
 │   ├── api/
-│   │   ├── handler.py              # Routes API GW proxy events
+│   │   ├── handler.py              # Routes API GW proxy events + OPTIONS preflight
 │   │   ├── health_proxy_client.py  # Shared copy (synced by deploy.sh)
 │   │   └── routes/
 │   │       ├── events.py           # GET /v1/events, GET /v1/events/{arn}/details
@@ -75,25 +77,32 @@ aws-health-multi-org-aggregator/
 │       └── excel_writer.py         # Workbook builder (pivots, delta, charts)
 ├── terraform/
 │   ├── api_gateway_health_proxy.tf # Private API GW + VTL AWS Service Integration
+│   ├── api_key.tf                  # Consumer API resource policy (IAM auth + IP allowlist)
 │   ├── dynamodb.tf                 # events, account-metadata, collection-state tables
 │   ├── eventbridge.tf              # 15-min collector schedule + daily exporter schedule
-│   ├── iam.tf                      # 5 IAM roles (proxy, collector, api, exporter, apigw-cw)
+│   ├── iam.tf                      # IAM roles + dashboard-consumer managed policy
 │   ├── kms.tf                      # Single KMS key for DynamoDB, SSM, S3, Lambda env
-│   ├── lambda.tf                   # Lambda functions + consumer API GW
+│   ├── lambda.tf                   # Lambda functions + consumer API GW (AWS_IAM auth)
+│   ├── locals.tf                   # Resolves create_vpc / bring-your-own VPC + SNS
 │   ├── monitoring.tf               # CloudWatch alarms + dashboard
+│   ├── networking.tf               # Optional VPC + subnets (create_vpc = true)
 │   ├── outputs.tf
 │   ├── s3.tf                       # KMS-encrypted export bucket
+│   ├── ssm_documents.tf            # SSM Automation docs + execution role
 │   ├── variables.tf
 │   ├── vpc_endpoints.tf            # execute-api, DynamoDB, SSM, STS, logs, SNS, S3
 │   ├── waf.tf                      # WAF WebACL on consumer API GW only
 │   └── terraform.tfvars.example
+├── ssm/
+│   ├── HealthAggregator-RegisterOrg.yaml    # Add/update/remove org in SSM registry
+│   └── HealthAggregator-TestCollection.yaml # Trigger collector + fetch metrics/logs
 ├── docs/
 │   ├── api-contract.md
 │   └── data-model.md
 ├── scripts/
 │   ├── deploy.sh                   # pip install + terraform plan/apply
-│   ├── register_org.sh             # Add/update/remove org in SSM registry
-│   └── test_collection.sh          # Manually trigger collector + tail logs
+│   ├── register_org.sh             # CLI wrapper for RegisterOrg SSM document
+│   └── test_collection.sh          # CLI wrapper for TestCollection SSM document
 └── SPEC.md                         # Full system specification
 ```
 
@@ -112,7 +121,7 @@ aws-health-multi-org-aggregator/
 
 ## Quick Start
 
-### 1. Configure orgs
+### 1. Configure
 
 Copy the example and fill in your values:
 
@@ -120,18 +129,16 @@ Copy the example and fill in your values:
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-Register each org in SSM Parameter Store:
+Key settings to fill in:
 
-```bash
-./scripts/register_org.sh \
-  --name "Acme Corp" \
-  --org-id o-abc123def45 \
-  --account-id 123456789012
+```hcl
+create_vpc              = false          # use existing VPC
+vpc_id                  = "vpc-..."
+private_subnet_ids      = ["subnet-...", "subnet-..."]
+private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
+private_route_table_ids = ["rtb-...", "rtb-..."]
 
-./scripts/register_org.sh \
-  --name "Beta LLC" \
-  --org-id o-xyz987ghi65 \
-  --account-id 987654321098
+consumer_api_allowed_cidrs = ["203.0.113.0/24"]  # your egress IP(s)
 ```
 
 ### 2. Deploy
@@ -142,18 +149,40 @@ Register each org in SSM Parameter Store:
 
 This runs `pip install` for all three Lambda packages, then `terraform init / plan / apply`.
 
-### 3. Verify collection
+### 3. Register orgs
+
+Use the **SSM Automation document** in the AWS Console (Systems Manager → Automation → `HealthAggregator-RegisterOrg`) or via CLI:
 
 ```bash
-./scripts/test_collection.sh
+aws ssm start-automation-execution \
+  --document-name HealthAggregator-RegisterOrg \
+  --parameters Action=AddOrUpdate,OrgId=o-abc123def45,OrgName="Acme Corp",AccountId=123456789012
 ```
 
-Triggers the collector Lambda and streams its CloudWatch logs for 5 minutes, then prints `EventsCollected` and `CollectionErrors` metrics.
+### 4. Verify collection
 
-### 4. Query the API
+Use the **SSM Automation document** `HealthAggregator-TestCollection` (AWS Console), or via CLI:
 
 ```bash
-# List open issues
+aws ssm start-automation-execution \
+  --document-name HealthAggregator-TestCollection \
+  --parameters FunctionName=health-aggregator-collector
+```
+
+### 5. Grant dashboard access
+
+Attach the managed IAM policy to any user or role that needs to query the API:
+
+```bash
+aws iam attach-user-policy \
+  --user-name <username> \
+  --policy-arn $(terraform -chdir=terraform output -raw dashboard_consumer_policy_arn)
+```
+
+### 6. Query the API
+
+```bash
+# List open issues (SigV4-signed with aws-curl)
 curl -s \
   --aws-sigv4 "aws:amz:us-east-1:execute-api" \
   --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
@@ -161,8 +190,14 @@ curl -s \
   | python3 -m json.tool
 
 # Summary
-curl -s ... "https://.../prod/v1/summary"
+curl -s \
+  --aws-sigv4 "aws:amz:us-east-1:execute-api" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  "https://<api-id>.execute-api.us-east-1.amazonaws.com/prod/v1/summary" \
+  | python3 -m json.tool
 ```
+
+Or open `frontend/index.html` in a browser and enter your AWS credentials in the settings modal — it signs requests with SigV4 via the Web Crypto API.
 
 ---
 
@@ -299,24 +334,42 @@ CloudWatch Dashboard: `health-aggregator` — 6 metric widgets across collection
 Key variables in `terraform.tfvars`:
 
 ```hcl
-# Required
+# ── VPC (Option A: create new)
+create_vpc = true
+vpc_cidr   = "10.0.0.0/16"
+
+# ── VPC (Option B: bring your own)
+create_vpc              = false
 vpc_id                  = "vpc-..."
 private_subnet_ids      = ["subnet-...", "subnet-..."]
 private_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
 private_route_table_ids = ["rtb-...", "rtb-..."]
-cross_org_role_name     = "HealthAggregatorReadRole"
 
-# Alerting
-alarm_sns_topic_arn        = "arn:aws:sns:..."   # CloudWatch alarms
-health_alert_sns_topic_arn = "arn:aws:sns:..."   # Health event alerts
-alerts_enabled             = true
+# ── API access control
+consumer_api_allowed_cidrs = ["203.0.113.0/24"]  # restrict to your egress IP(s)
 
-# Excel export
+# ── Cross-org IAM
+cross_org_role_name = "HealthAggregatorReadRole"  # must exist in every delegated admin account
+
+# ── SNS (Option A: create new topics)
+create_alarm_topic = true
+create_alert_topic = true
+
+# ── SNS (Option B: bring your own)
+create_alarm_topic         = false
+alarm_sns_topic_arn        = "arn:aws:sns:..."
+create_alert_topic         = false
+health_alert_sns_topic_arn = "arn:aws:sns:..."
+
+# ── Alerting
+alerts_enabled = true
+
+# ── Excel export
 excel_export_enabled  = true
 excel_export_schedule = "rate(1 day)"
 export_retention_days = 90
 
-# Tuning (defaults are fine for most deployments)
+# ── Tuning (defaults are fine for most deployments)
 collection_window_days  = 7
 collection_schedule     = "rate(15 minutes)"
 max_concurrent_orgs     = 5
