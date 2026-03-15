@@ -16,7 +16,20 @@ private_route_table_ids = ["rtb-0abc123", "rtb-0def456"]
 cross_org_role_name = "HealthAggregatorReadRole"
 
 # ── Alerting ──────────────────────────────────────────────────────────────────
+# CloudWatch alarm actions (infrastructure alerts)
 alarm_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-aggregator-alerts"
+
+# Health event alerts — new/changed operational events (can be same or separate topic)
+# Add PagerDuty HTTPS subscription to this topic for on-call paging.
+# health_alert_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:health-event-alerts"
+# alerts_enabled             = true
+
+# ── Excel export (optional) ───────────────────────────────────────────────────
+# excel_export_enabled  = true
+# excel_export_schedule = "rate(1 day)"
+# export_retention_days = 90
+# exporter_timeout_seconds = 300
+# exporter_memory_mb    = 1024
 
 # ── Tuning (optional — defaults are fine for most deployments) ────────────────
 # collection_window_days  = 7

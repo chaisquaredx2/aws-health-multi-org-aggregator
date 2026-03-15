@@ -138,6 +138,13 @@ resource "aws_iam_role_policy" "collector" {
           StringEquals = { "cloudwatch:namespace" = "HealthAggregator" }
         }
       },
+      # Publish health event alerts to SNS (delivered from AWS network to PagerDuty/email/Slack)
+      {
+        Sid      = "SNSPublishAlerts"
+        Effect   = "Allow"
+        Action   = "sns:Publish"
+        Resource = var.health_alert_sns_topic_arn != "" ? var.health_alert_sns_topic_arn : "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
+      },
     ]
   })
 }
@@ -228,4 +235,64 @@ resource "aws_iam_role_policy_attachment" "apigw_cloudwatch" {
 
 resource "aws_api_gateway_account" "main" {
   cloudwatch_role_arn = aws_iam_role.apigw_cloudwatch.arn
+}
+
+# ── 5. Exporter Lambda execution role ─────────────────────────────────────────
+
+resource "aws_iam_role" "exporter" {
+  count = var.excel_export_enabled ? 1 : 0
+  name  = "${var.project_name}-exporter"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = { Name = "${var.project_name}-exporter" }
+}
+
+resource "aws_iam_role_policy_attachment" "exporter_basic" {
+  count      = var.excel_export_enabled ? 1 : 0
+  role       = aws_iam_role.exporter[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "exporter" {
+  count = var.excel_export_enabled ? 1 : 0
+  name  = "exporter-permissions"
+  role  = aws_iam_role.exporter[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # Read all events from DynamoDB for export
+      {
+        Sid    = "DynamoDBRead"
+        Effect = "Allow"
+        Action = ["dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
+        Resource = [
+          aws_dynamodb_table.events.arn,
+          "${aws_dynamodb_table.events.arn}/index/*",
+        ]
+      },
+      # Write Excel reports and state to S3
+      {
+        Sid    = "S3ExportWrite"
+        Effect = "Allow"
+        Action = ["s3:PutObject", "s3:GetObject"]
+        Resource = "${aws_s3_bucket.exports.arn}/*"
+      },
+      # KMS for DynamoDB and S3 SSE
+      {
+        Sid    = "KMSDecryptEncrypt"
+        Effect = "Allow"
+        Action = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = aws_kms_key.main.arn
+      },
+    ]
+  })
 }

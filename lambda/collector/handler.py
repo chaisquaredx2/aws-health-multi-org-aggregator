@@ -29,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 import boto3
 
 from account_cache import load_account_map
+from alert_dispatcher import dispatch as dispatch_alerts
+from event_classifier import classify_event
 from health_proxy_client import HealthProxyClient, HealthAPIError
 from org_registry import load_orgs
 
@@ -66,6 +68,7 @@ def handler(event: dict, context) -> dict:
     )
 
     total_events = 0
+    all_written_items: list = []
     errors: list = []
 
     with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_ORGS) as pool:
@@ -76,8 +79,9 @@ def handler(event: dict, context) -> dict:
         for future in as_completed(futures):
             org = futures[future]
             try:
-                count = future.result()
+                count, written_items = future.result()
                 total_events += count
+                all_written_items.extend(written_items)
                 logger.info("org=%s collected=%d", org["org_id"], count)
             except Exception as exc:
                 msg = str(exc)
@@ -88,6 +92,11 @@ def handler(event: dict, context) -> dict:
 
     _emit_metric("EventsCollected", total_events)
     logger.info("Collection complete: %d events, %d org errors", total_events, len(errors))
+
+    # Dispatch alerts for new/changed operational events
+    alerts_sent = dispatch_alerts(all_written_items, _state_table)
+    if alerts_sent:
+        logger.info("Dispatched %d alert message(s) to SNS", alerts_sent)
 
     if errors:
         return {"statusCode": 207, "errors": errors, "total_events": total_events}
@@ -117,9 +126,13 @@ def _collect_org(org: dict, health_client: HealthProxyClient, window_start: str)
 
     # Step 4: enrich events with affected accounts and write to DynamoDB
     records_written = 0
+    written_items: list = []
     for ev in events:
         try:
-            records_written += _process_event(ev, org_id, org_name, account_map, health_client)
+            count, item = _process_event(ev, org_id, org_name, account_map, health_client)
+            records_written += count
+            if item:
+                written_items.append(item)
         except Exception as exc:
             logger.warning("Skipping event %s: %s", ev.get("arn", "?"), exc)
 
@@ -127,7 +140,7 @@ def _collect_org(org: dict, health_client: HealthProxyClient, window_start: str)
     _emit_metric("OrgCollectionDurationMs", duration_ms, org_id)
     _put_collection_state(org, success=True, error=None, count=records_written)
 
-    return records_written
+    return records_written, written_items
 
 
 def _process_event(
@@ -161,7 +174,18 @@ def _process_event(
     ]
 
     if not org_accounts:
-        return 0  # event does not affect any account in this org
+        return 0, None  # event does not affect any account in this org
+
+    service = ev.get("service", "")
+    event_type_code = ev.get("eventTypeCode", "")
+    status = ev.get("statusCode", "open")
+
+    # Classify event: operational flag + severity
+    classification = classify_event(
+        service=service,
+        event_type_code=event_type_code,
+        status=status,
+    )
 
     now_epoch = int(time.time())
     ttl = now_epoch + (_WINDOW_DAYS * 24 * 3600)
@@ -175,16 +199,19 @@ def _process_event(
         "org_id": org_id,
         "org_name": org_name,
         "category": category,
-        "service": ev.get("service", ""),
-        "event_type_code": ev.get("eventTypeCode", ""),
+        "service": service,
+        "event_type_code": event_type_code,
         "region": ev.get("region", "global"),
-        "status": ev.get("statusCode", "open"),
+        "status": status,
         "start_time": start_time,
         "last_updated_time": _iso(ev.get("lastUpdatedTime")),
         "end_time": _iso(ev.get("endTime")) if ev.get("endTime") else None,
         # Enriched account data
         "affected_accounts": org_accounts,
         "affected_account_count": len(org_accounts),
+        # Classification (from event_classifier)
+        "is_operational": classification.is_operational,
+        "severity": classification.severity,
         # Housekeeping
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "ttl": ttl,
@@ -193,7 +220,7 @@ def _process_event(
     item = {k: v for k, v in item.items() if v is not None}
 
     _events_table.put_item(Item=item)
-    return 1
+    return 1, item
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

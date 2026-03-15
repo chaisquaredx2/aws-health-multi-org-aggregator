@@ -25,3 +25,17 @@ output "execute_api_vpce_id" {
 output "kms_key_arn" {
   value = aws_kms_key.main.arn
 }
+
+output "excel_export_bucket" {
+  description = "S3 bucket where daily Excel health reports are stored."
+  value       = aws_s3_bucket.exports.id
+}
+
+output "excel_export_bucket_arn" {
+  value = aws_s3_bucket.exports.arn
+}
+
+output "exporter_function_name" {
+  description = "Name of the Excel exporter Lambda (invoke manually to generate a report on-demand)."
+  value       = var.excel_export_enabled ? aws_lambda_function.exporter[0].function_name : ""
+}
