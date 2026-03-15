@@ -6,12 +6,30 @@ resource "aws_dynamodb_table" "events" {
   hash_key     = "pk"
   range_key    = "sk"
 
-  attribute { name = "pk";               type = "S" }
-  attribute { name = "sk";               type = "S" }
-  attribute { name = "category";         type = "S" }
-  attribute { name = "start_time";       type = "S" }
-  attribute { name = "org_id";           type = "S" }
-  attribute { name = "last_updated_time"; type = "S" }
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+  attribute {
+    name = "category"
+    type = "S"
+  }
+  attribute {
+    name = "start_time"
+    type = "S"
+  }
+  attribute {
+    name = "org_id"
+    type = "S"
+  }
+  attribute {
+    name = "last_updated_time"
+    type = "S"
+  }
 
   # Primary query path: all events in category within 7-day window
   global_secondary_index {
@@ -37,7 +55,9 @@ resource "aws_dynamodb_table" "events" {
     enabled        = true
   }
 
-  point_in_time_recovery { enabled = true }
+  point_in_time_recovery {
+    enabled = true
+  }
 
   server_side_encryption {
     enabled     = true
@@ -52,9 +72,12 @@ resource "aws_dynamodb_table" "events" {
 resource "aws_dynamodb_table" "account_metadata" {
   name         = "${var.project_name}-account-metadata"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"  # "{org_id}#{account_id}"
+  hash_key     = "pk"
 
-  attribute { name = "pk"; type = "S" }
+  attribute {
+    name = "pk"
+    type = "S"
+  }
 
   ttl {
     attribute_name = "ttl"
@@ -74,9 +97,12 @@ resource "aws_dynamodb_table" "account_metadata" {
 resource "aws_dynamodb_table" "collection_state" {
   name         = "${var.project_name}-collection-state"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"  # org_id
+  hash_key     = "pk"
 
-  attribute { name = "pk"; type = "S" }
+  attribute {
+    name = "pk"
+    type = "S"
+  }
 
   server_side_encryption {
     enabled     = true

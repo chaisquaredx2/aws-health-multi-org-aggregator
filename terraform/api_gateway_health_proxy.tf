@@ -312,6 +312,15 @@ resource "aws_api_gateway_stage" "health_proxy" {
   # Access logging to CloudWatch
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.health_proxy_apigw.arn
+    format = jsonencode({
+      requestId         = "$context.requestId"
+      ip                = "$context.identity.sourceIp"
+      httpMethod        = "$context.httpMethod"
+      resourcePath      = "$context.resourcePath"
+      status            = "$context.status"
+      responseLength    = "$context.responseLength"
+      integrationLatency = "$context.integrationLatency"
+    })
   }
 
   xray_tracing_enabled = true

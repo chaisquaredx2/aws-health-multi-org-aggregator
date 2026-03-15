@@ -178,7 +178,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       # Row 1: collection health
       {
         type   = "metric"
-        x = 0; y = 0; width = 8; height = 6
+        x = 0
+        y = 0
+        width = 8
+        height = 6
         properties = {
           title  = "Events Collected per Run"
           view   = "timeSeries"
@@ -189,7 +192,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       },
       {
         type   = "metric"
-        x = 8; y = 0; width = 8; height = 6
+        x = 8
+        y = 0
+        width = 8
+        height = 6
         properties = {
           title  = "Collection Errors (per org)"
           view   = "timeSeries"
@@ -201,7 +207,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       },
       {
         type   = "metric"
-        x = 16; y = 0; width = 8; height = 6
+        x = 16
+        y = 0
+        width = 8
+        height = 6
         properties = {
           title  = "Org Collection Duration (p95 ms)"
           view   = "timeSeries"
@@ -213,7 +222,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       # Row 2: Health proxy
       {
         type   = "metric"
-        x = 0; y = 6; width = 12; height = 6
+        x = 0
+        y = 6
+        width = 12
+        height = 6
         properties = {
           title  = "Health Proxy API GW — 4xx / 5xx"
           view   = "timeSeries"
@@ -226,7 +238,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       },
       {
         type   = "metric"
-        x = 12; y = 6; width = 12; height = 6
+        x = 12
+        y = 6
+        width = 12
+        height = 6
         properties = {
           title  = "API Lambda — Errors & Duration"
           view   = "timeSeries"
@@ -240,7 +255,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       # Row 3: DynamoDB
       {
         type   = "metric"
-        x = 0; y = 12; width = 12; height = 6
+        x = 0
+        y = 12
+        width = 12
+        height = 6
         properties = {
           title  = "DynamoDB — Consumed Write/Read Capacity"
           view   = "timeSeries"
@@ -253,7 +271,10 @@ resource "aws_cloudwatch_dashboard" "main" {
       },
       {
         type   = "metric"
-        x = 12; y = 12; width = 12; height = 6
+        x = 12
+        y = 12
+        width = 12
+        height = 6
         properties = {
           title  = "DynamoDB — Throttled Requests"
           view   = "timeSeries"
