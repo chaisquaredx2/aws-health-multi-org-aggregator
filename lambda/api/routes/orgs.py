@@ -8,6 +8,8 @@ import os
 
 import boto3
 
+from response import response
+
 logger = logging.getLogger(__name__)
 
 _STATE_TABLE_NAME = os.environ["STATE_TABLE_NAME"]
@@ -19,10 +21,9 @@ _state_table = _dynamodb.Table(_STATE_TABLE_NAME)
 
 def list_orgs(query: dict, _multi: dict, _param=None) -> dict:
     # Load org registry from SSM for names + config
-    import json as _json
     ssm = boto3.client("ssm")
     param = ssm.get_parameter(Name=_ORG_REGISTRY_PATH, WithDecryption=True)
-    all_orgs: list = _json.loads(param["Parameter"]["Value"])
+    all_orgs: list = json.loads(param["Parameter"]["Value"])
 
     # Load collection state for each org from DynamoDB
     org_ids = [o["org_id"] for o in all_orgs]
@@ -52,8 +53,4 @@ def list_orgs(query: dict, _multi: dict, _param=None) -> dict:
             },
         })
 
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-        "body": json.dumps({"data": data}, default=str),
-    }
+    return response(200, {"data": data})

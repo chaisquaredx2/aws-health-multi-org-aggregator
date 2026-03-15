@@ -177,64 +177,68 @@ def _build_delta_log(delta_new, delta_resolved, prev_rows):
 def _write_workbook(path, events_df, entities_df, delta_new_df, delta_resolved_df, delta_log_df):
     with pd.ExcelWriter(path, engine="xlsxwriter", datetime_format="yyyy-mm-dd hh:mm:ss") as writer:
         wb = writer.book
-
-        # ── Raw sheets ────────────────────────────────────────────────────────
-        events_df.to_excel(writer, sheet_name="Events", index=False)
-        entities_df.to_excel(writer, sheet_name="AffectedEntities", index=False)
-        delta_log_df.to_excel(writer, sheet_name="Delta_Log", index=False)
-
-        # Delta_Latest: new open on top, resolved below
-        delta_new_df.to_excel(writer, sheet_name="Delta_Latest", index=False)
-        ws_delta = writer.sheets["Delta_Latest"]
-        sep_row = len(delta_new_df) + 2
-        ws_delta.write(sep_row, 0, "Resolved since last run")
-        delta_resolved_df.to_excel(
-            writer, sheet_name="Delta_Latest",
-            startrow=sep_row + 1, index=False,
-        )
-
-        # Apply autofit + freeze panes
-        for sheet_name, df in [
-            ("Events", events_df),
-            ("AffectedEntities", entities_df),
-            ("Delta_Log", delta_log_df),
-        ]:
-            ws = writer.sheets[sheet_name]
-            _autofit(ws, df)
-            ws.freeze_panes(1, 0)
-            _add_table(wb, ws, df, sheet_name.replace(" ", "_"))
-
-        # ── Pivot sheets ──────────────────────────────────────────────────────
-        events_addr = _table_addr("Events", events_df)
-
-        for sheet_name, row_field, table_name in [
-            ("Pivot_Service", "service",      "pvt_service"),
-            ("Pivot_Account", "org_name",     "pvt_account"),
-            ("Pivot_Region",  "region",       "pvt_region"),
-        ]:
-            ws = wb.add_worksheet(sheet_name)
-            ws.write(0, 0, f"Events by {row_field.capitalize()}")
-            try:
-                ws.add_pivot_table({
-                    "name": table_name,
-                    "source": events_addr,
-                    "destination": "A3",
-                    "fields": {
-                        row_field: "row",
-                        "status": "column",
-                        "event_arn": "sum",
-                        "org_name": "filter",
-                        "region": "filter",
-                        "category": "filter",
-                        "severity": "filter",
-                    },
-                })
-            except Exception:
-                ws.write(2, 0, "(Pivot requires data in Events sheet)")
-
-        # ── Summary sheet ─────────────────────────────────────────────────────
+        _write_data_sheets(writer, wb, events_df, entities_df, delta_new_df, delta_resolved_df, delta_log_df)
+        _write_pivot_sheets(wb, events_df)
         ws_summary = wb.add_worksheet("Summary")
         _write_summary(wb, ws_summary, events_df, delta_new_df, delta_resolved_df)
+
+
+def _write_data_sheets(writer, wb, events_df, entities_df, delta_new_df, delta_resolved_df, delta_log_df):
+    """Write Events, AffectedEntities, Delta_Log, and Delta_Latest sheets."""
+    events_df.to_excel(writer, sheet_name="Events", index=False)
+    entities_df.to_excel(writer, sheet_name="AffectedEntities", index=False)
+    delta_log_df.to_excel(writer, sheet_name="Delta_Log", index=False)
+
+    # Delta_Latest: new open on top, resolved below
+    delta_new_df.to_excel(writer, sheet_name="Delta_Latest", index=False)
+    ws_delta = writer.sheets["Delta_Latest"]
+    sep_row = len(delta_new_df) + 2
+    ws_delta.write(sep_row, 0, "Resolved since last run")
+    delta_resolved_df.to_excel(
+        writer, sheet_name="Delta_Latest",
+        startrow=sep_row + 1, index=False,
+    )
+
+    # Apply autofit + freeze panes to the tabular sheets
+    for sheet_name, df in [
+        ("Events", events_df),
+        ("AffectedEntities", entities_df),
+        ("Delta_Log", delta_log_df),
+    ]:
+        ws = writer.sheets[sheet_name]
+        _autofit(ws, df)
+        ws.freeze_panes(1, 0)
+        _add_table(wb, ws, df, sheet_name.replace(" ", "_"))
+
+
+def _write_pivot_sheets(wb, events_df):
+    """Add Pivot_Service, Pivot_Account, and Pivot_Region sheets."""
+    events_addr = _table_addr("Events", events_df)
+
+    for sheet_name, row_field, table_name in [
+        ("Pivot_Service", "service",  "pvt_service"),
+        ("Pivot_Account", "org_name", "pvt_account"),
+        ("Pivot_Region",  "region",   "pvt_region"),
+    ]:
+        ws = wb.add_worksheet(sheet_name)
+        ws.write(0, 0, f"Events by {row_field.capitalize()}")
+        try:
+            ws.add_pivot_table({
+                "name": table_name,
+                "source": events_addr,
+                "destination": "A3",
+                "fields": {
+                    row_field: "row",
+                    "status": "column",
+                    "event_arn": "sum",
+                    "org_name": "filter",
+                    "region": "filter",
+                    "category": "filter",
+                    "severity": "filter",
+                },
+            })
+        except Exception:
+            ws.write(2, 0, "(Pivot requires data in Events sheet)")
 
 
 def _write_summary(wb, ws, events_df, delta_new_df, delta_resolved_df):
@@ -313,7 +317,7 @@ def _autofit(ws, df: pd.DataFrame):
     for i, col in enumerate(df.columns):
         try:
             max_len = max(len(str(col)), *(len(str(v)) for v in df[col].astype(str).head(100)))
-        except ValueError:
+        except (ValueError, TypeError):
             max_len = len(str(col))
         ws.set_column(i, i, min(max_len + 2, 60))
 

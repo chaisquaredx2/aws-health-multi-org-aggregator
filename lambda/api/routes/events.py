@@ -3,13 +3,15 @@ routes/events.py — GET /v1/events and GET /v1/events/{arn_b64}/details
 """
 
 import base64
-import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Key
+
+from pagination import decode_token, encode_token
+from response import response
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +60,7 @@ def list_events(query: dict, multi_query: dict, _path_param=None) -> dict:
         "Limit": page_size,
     }
     if next_token_raw:
-        kwargs["ExclusiveStartKey"] = json.loads(
-            base64.b64decode(next_token_raw).decode()
-        )
+        kwargs["ExclusiveStartKey"] = decode_token(next_token_raw)
 
     resp = _table.query(**kwargs)
     items = resp.get("Items", [])
@@ -87,27 +87,20 @@ def list_events(query: dict, multi_query: dict, _path_param=None) -> dict:
     # Merge records with the same event_arn across orgs
     merged = _merge_by_arn(items)
 
-    # Build next_token
     lek = resp.get("LastEvaluatedKey")
-    new_next_token = (
-        base64.b64encode(json.dumps(lek).encode()).decode() if lek else None
-    )
+    new_next_token = encode_token(lek) if lek else None
 
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-        "body": json.dumps({
-            "meta": {
-                "window_start": window_start.isoformat(),
-                "window_end": window_end.isoformat(),
-                "window_days": window_days,
-                "total": len(merged),
-                "returned": len(merged),
-                "next_token": new_next_token,
-            },
-            "data": merged,
-        }, default=str),
-    }
+    return response(200, {
+        "meta": {
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+            "window_days": window_days,
+            "total": len(merged),
+            "returned": len(merged),
+            "next_token": new_next_token,
+        },
+        "data": merged,
+    })
 
 
 # ── GET /v1/events/{arn_b64}/details ─────────────────────────────────────────
@@ -131,22 +124,14 @@ def get_event_details(query: dict, _multi_query: dict, path_param: str) -> dict:
     items = resp.get("Items", [])
 
     if not items:
-        return {
-            "statusCode": 404,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": {"code": "NOT_FOUND", "message": "Event not found"}}),
-        }
+        return response(404, {"error": {"code": "NOT_FOUND", "message": "Event not found"}})
 
     if org_id_filter:
         items = [i for i in items if i.get("org_id") == org_id_filter]
 
     merged = _merge_by_arn(items)
     if not merged:
-        return {
-            "statusCode": 404,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": {"code": "NOT_FOUND", "message": "Event not found for org"}}),
-        }
+        return response(404, {"error": {"code": "NOT_FOUND", "message": "Event not found for org"}})
 
     detail = merged[0]
 
@@ -156,11 +141,7 @@ def get_event_details(query: dict, _multi_query: dict, path_param: str) -> dict:
         description = _fetch_description(event_arn, items[0].get("org_id"))
         detail["description"] = description
 
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-        "body": json.dumps(detail, default=str),
-    }
+    return response(200, detail)
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────

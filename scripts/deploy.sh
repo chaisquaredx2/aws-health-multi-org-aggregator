@@ -13,10 +13,11 @@ echo "==> Installing api dependencies..."
 pip install -r "$ROOT/lambda/api/requirements.txt" \
     -t "$ROOT/lambda/api/" --quiet
 
-# health_proxy_client is shared between collector and api packages.
-# Keep api copy in sync with collector source.
-echo "==> Syncing shared health_proxy_client to api package..."
-cp "$ROOT/lambda/collector/health_proxy_client.py" \
+# health_proxy_client lives in lambda/shared/ — copy into each package before zip.
+echo "==> Distributing shared health_proxy_client to collector and api packages..."
+cp "$ROOT/lambda/shared/health_proxy_client.py" \
+   "$ROOT/lambda/collector/health_proxy_client.py"
+cp "$ROOT/lambda/shared/health_proxy_client.py" \
    "$ROOT/lambda/api/health_proxy_client.py"
 
 echo "==> Installing exporter dependencies..."

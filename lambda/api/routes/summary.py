@@ -2,7 +2,6 @@
 routes/summary.py — GET /v1/summary
 """
 
-import json
 import logging
 import os
 from collections import Counter, defaultdict
@@ -10,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Key
+
+from response import response
 
 logger = logging.getLogger(__name__)
 
@@ -111,15 +112,11 @@ def get_summary(query: dict, _multi: dict, _param=None) -> dict:
         "affected_account_count": len(affected_account_ids),
     }
 
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
-        "body": json.dumps({
-            "meta": {
-                "window_start": window_start.isoformat(),
-                "window_end": now.isoformat(),
-                "window_days": window_days,
-            },
-            "summary": summary,
-        }, default=str),
-    }
+    return response(200, {
+        "meta": {
+            "window_start": window_start.isoformat(),
+            "window_end": now.isoformat(),
+            "window_days": window_days,
+        },
+        "summary": summary,
+    })

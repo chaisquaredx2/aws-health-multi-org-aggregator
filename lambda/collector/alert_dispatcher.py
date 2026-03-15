@@ -205,8 +205,8 @@ def _has_significant_update(incident: dict) -> bool:
     return False
 
 
-def _send_digest(incident: dict, is_update: bool = False) -> bool:
-    """Format and publish a single SNS digest for one incident."""
+def _build_digest_message(incident: dict, is_update: bool) -> tuple:
+    """Build SNS subject, message body, and MessageAttributes for one incident."""
     service           = incident.get("service", "Unknown")
     regions           = sorted(incident.get("regions", []))
     event_count       = int(incident.get("event_count", 1))
@@ -216,9 +216,9 @@ def _send_digest(incident: dict, is_update: bool = False) -> bool:
     org_count         = len(incident.get("org_ids", []))
 
     is_multi_region = len(regions) >= 2
-    priority        = "HIGH" if (is_multi_region and affected_accounts > 100) else "STANDARD"
-    alert_type      = "UPDATE" if is_update else "NEW INCIDENT"
-    priority_label  = "🔴 HIGH" if priority == "HIGH" else "⚠️  ALERT"
+    priority       = "HIGH" if (is_multi_region and affected_accounts > 100) else "STANDARD"
+    alert_type     = "UPDATE" if is_update else "NEW INCIDENT"
+    priority_label = "🔴 HIGH" if priority == "HIGH" else "⚠️  ALERT"
 
     subject = (
         f"{priority_label} [{alert_type}]: {service} — "
@@ -266,22 +266,32 @@ def _send_digest(incident: dict, is_update: bool = False) -> bool:
         }, indent=2),
     ]
 
+    attributes = {
+        "priority":          {"DataType": "String", "StringValue": priority},
+        "service":           {"DataType": "String", "StringValue": service},
+        "affected_accounts": {"DataType": "Number", "StringValue": str(affected_accounts)},
+        "regions":           {"DataType": "String", "StringValue": ",".join(regions)},
+        "alert_type":        {"DataType": "String", "StringValue": alert_type},
+    }
+
+    return subject, "\n".join(lines), attributes
+
+
+def _send_digest(incident: dict, is_update: bool = False) -> bool:
+    """Publish a single SNS digest for one incident."""
+    subject, message, attributes = _build_digest_message(incident, is_update)
     try:
         _sns.publish(
             TopicArn=_SNS_TOPIC_ARN,
             Subject=subject,
-            Message="\n".join(lines),
-            MessageAttributes={
-                "priority":          {"DataType": "String", "StringValue": priority},
-                "service":           {"DataType": "String", "StringValue": service},
-                "affected_accounts": {"DataType": "Number", "StringValue": str(affected_accounts)},
-                "regions":           {"DataType": "String", "StringValue": ",".join(regions)},
-                "alert_type":        {"DataType": "String", "StringValue": alert_type},
-            },
+            Message=message,
+            MessageAttributes=attributes,
         )
         logger.info(
-            "Digest sent: service=%s regions=%s events=%d accounts=%d priority=%s update=%s",
-            service, regions, event_count, affected_accounts, priority, is_update,
+            "Digest sent: service=%s events=%d accounts=%d priority=%s update=%s",
+            incident.get("service"), incident.get("event_count"),
+            incident.get("affected_account_count"), attributes["priority"]["StringValue"],
+            is_update,
         )
         return True
     except ClientError as exc:

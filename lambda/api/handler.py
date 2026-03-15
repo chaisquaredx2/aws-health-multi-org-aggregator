@@ -12,11 +12,11 @@ Routes:
   POST /v1/export                          -> routes.export.trigger_export
 """
 
-import json
 import logging
 import os
 import re
 
+from response import response
 from routes.events import list_events, get_event_details
 from routes.export import trigger_export
 from routes.summary import get_summary
@@ -56,25 +56,14 @@ def handler(event: dict, context) -> dict:
         m = pattern.match(path)
         if m:
             if method != route_method:
-                return _response(405, {"error": {"code": "METHOD_NOT_ALLOWED", "message": f"{path} only accepts {route_method}"}})
+                return response(405, {"error": {"code": "METHOD_NOT_ALLOWED", "message": f"{path} only accepts {route_method}"}})
             try:
                 path_param = m.group(1) if has_param else None
                 return fn(query, multi_query, path_param)
             except ValueError as exc:
-                return _response(400, {"error": {"code": "INVALID_PARAMETER", "message": str(exc)}})
+                return response(400, {"error": {"code": "INVALID_PARAMETER", "message": str(exc)}})
             except Exception as exc:
                 logger.exception("Unhandled error in %s", fn.__name__)
-                return _response(500, {"error": {"code": "INTERNAL_ERROR", "message": str(exc)}})
+                return response(500, {"error": {"code": "INTERNAL_ERROR", "message": str(exc)}})
 
-    return _response(404, {"error": {"code": "NOT_FOUND", "message": f"No route for {method} {path}"}})
-
-
-def _response(status: int, body: dict) -> dict:
-    return {
-        "statusCode": status,
-        "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-        },
-        "body": json.dumps(body, default=str),
-    }
+    return response(404, {"error": {"code": "NOT_FOUND", "message": f"No route for {method} {path}"}})

@@ -12,13 +12,14 @@ Requires env vars:
   EXPORT_BUCKET           — S3 bucket name (for response hint)
 """
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
 
 import boto3
 from botocore.exceptions import ClientError
+
+from response import response
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ _lambda_client = boto3.client("lambda")
 
 def trigger_export(query: dict, _multi_query: dict, _path_param=None) -> dict:
     if not _EXPORTER_FUNCTION_NAME:
-        return _response(501, {
+        return response(501, {
             "error": {
                 "code":    "NOT_CONFIGURED",
                 "message": "Excel export is not enabled on this deployment (excel_export_enabled = false)",
@@ -48,7 +49,7 @@ def trigger_export(query: dict, _multi_query: dict, _path_param=None) -> dict:
         )
     except ClientError as exc:
         logger.error("Failed to invoke exporter Lambda: %s", exc)
-        return _response(500, {
+        return response(500, {
             "error": {
                 "code":    "INTERNAL_ERROR",
                 "message": "Failed to start export. Check CloudWatch logs.",
@@ -61,15 +62,4 @@ def trigger_export(query: dict, _multi_query: dict, _path_param=None) -> dict:
     if _EXPORT_BUCKET:
         body["s3_uri"] = f"s3://{_EXPORT_BUCKET}/{s3_key}"
 
-    return _response(202, body)
-
-
-def _response(status: int, body: dict) -> dict:
-    return {
-        "statusCode": status,
-        "headers": {
-            "Content-Type":                 "application/json",
-            "Access-Control-Allow-Origin":  "*",
-        },
-        "body": json.dumps(body),
-    }
+    return response(202, body)

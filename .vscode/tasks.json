@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Health Proxy Client Test",
+			"type": "shell",
+			"command": "source venv/bin/activate && pytest tests/unit/shared/test_health_proxy_client.py",
+			"group": "test"
+		}
+	]
+}

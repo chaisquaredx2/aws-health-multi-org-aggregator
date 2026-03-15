@@ -127,6 +127,16 @@ def _list_accounts(assumed_credentials: dict) -> list:
     return accounts
 
 
+def _fetch_account_tags(account_id: str, orgs_client) -> dict:
+    """Fetch BusinessUnit and Environment tags for one account. Returns {} on error."""
+    try:
+        tag_resp = orgs_client.list_tags_for_resource(ResourceId=account_id)
+        return {t["Key"]: t["Value"] for t in tag_resp.get("Tags", [])}
+    except Exception as exc:
+        logger.warning("list_tags_for_resource(%s): %s", account_id, exc)
+        return {}
+
+
 def _enrich_and_cache(
     org_id: str,
     accounts: list,
@@ -152,23 +162,15 @@ def _enrich_and_cache(
             account_id = account["Id"]
             account_name = account["Name"]
 
-            # Fetch org resource tags for BusinessUnit and Environment
-            try:
-                tag_resp = orgs.list_tags_for_resource(ResourceId=account_id)
-                tags = {t["Key"]: t["Value"] for t in tag_resp.get("Tags", [])}
-            except Exception as exc:
-                logger.warning("list_tags_for_resource(%s): %s", account_id, exc)
-                tags = {}
-
+            tags = _fetch_account_tags(account_id, orgs)
             business_unit = tags.get("BusinessUnit", "Unknown")
             environment = tags.get("Environment", "non-production")
 
-            metadata = {
+            result[account_id] = {
                 "account_name": account_name,
                 "business_unit": business_unit,
                 "environment": environment,
             }
-            result[account_id] = metadata
 
             batch.put_item(Item={
                 "pk": _pk(org_id, account_id),
