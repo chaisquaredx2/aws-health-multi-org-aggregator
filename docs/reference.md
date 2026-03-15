@@ -273,6 +273,36 @@ Lists configured organizations with collection health metadata.
 
 ---
 
+### POST /v1/export
+
+Triggers an on-demand Excel export. Invokes the exporter Lambda asynchronously and returns immediately. The workbook is written to S3 within ~60 seconds.
+
+Only available when `excel_export_enabled = true` (default). Returns `501` if disabled.
+
+#### Request body
+
+None required. Send an empty body or omit entirely.
+
+#### Response 202
+
+```json
+{
+  "message":          "Export started",
+  "estimated_s3_key": "exports/2026/03/15/aws-health-events.xlsx",
+  "s3_uri":           "s3://<bucket>/exports/2026/03/15/aws-health-events.xlsx"
+}
+```
+
+The export will overwrite any existing file for today's date. Check S3 or CloudWatch Logs (`/aws/lambda/health-aggregator-exporter`) to confirm completion.
+
+| HTTP Status | Meaning |
+|---|---|
+| 202 | Export started successfully |
+| 501 | `excel_export_enabled = false` — endpoint not configured |
+| 500 | Failed to invoke exporter Lambda — check CloudWatch logs |
+
+---
+
 ### Pagination
 
 Uses DynamoDB `LastEvaluatedKey` encoded as a base64 JSON string, returned as `next_token` in the response `meta`. All filter params must be repeated identically on subsequent page requests. When `next_token` is `null`, there are no more results.

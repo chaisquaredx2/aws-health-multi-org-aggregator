@@ -562,6 +562,25 @@ ExclusiveStartKey = decoded(next_token) if next_token else absent
 }
 ```
 
+### 10.5 Export Route: `lambda/api/routes/export.py`
+
+**`POST /v1/export`** — Trigger on-demand Excel export.
+
+- Invokes `EXPORTER_FUNCTION_NAME` with `InvocationType=Event` (async fire-and-forget)
+- Returns `202 Accepted` immediately with the expected S3 URI
+- Returns `501` if `EXPORTER_FUNCTION_NAME` env var is empty (`excel_export_enabled = false`)
+- API Lambda IAM role gets `lambda:InvokeFunction` on the exporter ARN (conditional Terraform resource)
+- CORS: `Access-Control-Allow-Methods` updated to `GET,POST,OPTIONS`
+
+**Response 202:**
+```json
+{
+  "message":          "Export started",
+  "estimated_s3_key": "exports/YYYY/MM/DD/aws-health-events.xlsx",
+  "s3_uri":           "s3://<EXPORT_BUCKET>/exports/YYYY/MM/DD/aws-health-events.xlsx"
+}
+```
+
 ---
 
 ## §11 Exporter Lambda
@@ -765,6 +784,10 @@ GET /v1/summary
   &window_days=1-7                (optional, default 7)
 
 GET /v1/orgs
+
+POST /v1/export
+  — triggers on-demand Excel export (async); returns 202 with expected S3 URI
+  — returns 501 if excel_export_enabled = false
 ```
 
 **Event object fields (list response):**
@@ -996,6 +1019,7 @@ After tail: print `HealthAggregator/EventsCollected` and `CollectionErrors` metr
 | 2026-03-14 | Added `alert_dispatcher.py` — SNS alerting with dedup | §8 |
 | 2026-03-15 | Rewrote `alert_dispatcher.py` — digest mode + service-level incident correlation; added `DIGEST_WINDOW_MINUTES` / `CORRELATION_WINDOW_MINUTES` env vars | §8 |
 | 2026-03-15 | Reduced collection frequency 15 min → 5 min; digest window 30 min → 15 min for ~20 min worst-case TTD | §6, §8, §21 |
+| 2026-03-15 | Added `POST /v1/export` on-demand export endpoint; new `routes/export.py`; API IAM gets `lambda:InvokeFunction` on exporter | §10.5, §13 |
 | 2026-03-14 | Added `exporter/` Lambda — daily Excel report to S3 | §11 |
 | 2026-03-14 | Added SNS + S3 VPC endpoints | §14 vpc_endpoints |
 | 2026-03-14 | Added exporter IAM role; collector gains SNS Publish | §14 iam |

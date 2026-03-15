@@ -208,6 +208,7 @@ Or open `frontend/index.html` in a browser and enter your AWS credentials in the
 | `GET` | `/v1/events/{arn_b64}/details` | Full event detail, merged across orgs |
 | `GET` | `/v1/summary` | Counts by category, top services, top regions, per-org breakdown |
 | `GET` | `/v1/orgs` | Org registry + last collection state per org |
+| `POST` | `/v1/export` | Trigger on-demand Excel export — fires async, returns 202. Report lands in S3 within ~60s. |
 
 Query parameters for `/v1/events`:
 
@@ -290,13 +291,23 @@ s3://<bucket>/exports/YYYY/MM/DD/aws-health-events.xlsx
 | `Delta_Latest` | New-open events + resolved events since the previous run |
 | `Delta_Log` | Rolling history of all delta runs |
 
-Trigger an on-demand export:
+Trigger an on-demand export via the API:
+
+```bash
+curl -s -X POST \
+  --aws-sigv4 "aws:amz:us-east-1:execute-api" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  "https://<api-id>.execute-api.us-east-1.amazonaws.com/prod/v1/export"
+# → 202 {"message":"Export started","s3_uri":"s3://<bucket>/exports/2026/03/15/aws-health-events.xlsx"}
+```
+
+Or directly via Lambda CLI:
 
 ```bash
 aws lambda invoke \
   --function-name health-aggregator-exporter \
-  --invocation-type RequestResponse \
-  /tmp/export-response.json && cat /tmp/export-response.json
+  --invocation-type Event \
+  /dev/null
 ```
 
 ---

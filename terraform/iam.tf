@@ -297,6 +297,26 @@ resource "aws_iam_role_policy" "exporter" {
   })
 }
 
+# ── API Lambda — invoke exporter (on-demand export endpoint) ─────────────────
+# Only created when excel_export_enabled = true; attached as a separate policy
+# so the api role policy doesn't reference a conditional resource.
+
+resource "aws_iam_role_policy" "api_invoke_exporter" {
+  count = var.excel_export_enabled ? 1 : 0
+  name  = "api-invoke-exporter"
+  role  = aws_iam_role.api.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "InvokeExporter"
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunction"
+      Resource = aws_lambda_function.exporter[0].arn
+    }]
+  })
+}
+
 # ── Dashboard consumer policy ──────────────────────────────────────────────
 # Attach this managed policy to any IAM user/role that needs dashboard access.
 # e.g.: aws iam attach-user-policy --user-name bob --policy-arn <output>

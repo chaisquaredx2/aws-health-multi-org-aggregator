@@ -127,6 +127,9 @@ resource "aws_lambda_function" "api" {
       HEALTH_PROXY_API_URL   = "https://${aws_api_gateway_rest_api.health_proxy.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.health_proxy.stage_name}"
       ORG_REGISTRY_PATH      = "/health-aggregator/orgs"
       COLLECTION_WINDOW_DAYS = tostring(var.collection_window_days)
+      # On-demand export — empty string when excel_export_enabled = false
+      EXPORTER_FUNCTION_NAME = var.excel_export_enabled ? aws_lambda_function.exporter[0].function_name : ""
+      EXPORT_BUCKET          = var.excel_export_enabled ? aws_s3_bucket.exports.id : ""
       LOG_LEVEL              = "INFO"
     }
   }
@@ -220,7 +223,7 @@ resource "aws_api_gateway_integration_response" "proxy_options_200" {
   status_code = aws_api_gateway_method_response.proxy_options_200.status_code
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Api-Key,Authorization'"
-    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,OPTIONS'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 }
